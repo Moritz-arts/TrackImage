@@ -493,8 +493,8 @@ function updateCardHtml(){
    +'<div id="upd-result" style="margin-top:14px"></div>'
    +'<div class="proc-row" style="margin-top:16px"><label>Check automatically at start</label>'
    +'<label class="switch"><input id="upd-auto" type="checkbox" onchange="setAutoCheck(this.checked)"><span class="slider"></span></label></div>'
-   +'<div class="proc-hint">Off by default. TrackImage opens no connection of its own \u2014 with this on, it asks GitHub once per start whether a newer release exists, and nothing else.</div>'
-   +'<div class="proc-hint" style="margin-top:10px">An update downloads the release, checks the archive, copies the database to <b>Userdata-backup-v'+TI_VERSION+'.zip</b> beside the installation, and then restarts into the new version. Your pictures, database, settings and the tagging model stay where they are. If the swap fails at any point the previous version is put back.</div>'
+   +'<div class="proc-hint">Off by default. TrackImage opens no connection of its own \u2014 with this on, it asks GitHub once per start whether the <b>main</b> branch carries a newer version, and nothing else.</div>'
+   +'<div class="proc-hint" style="margin-top:10px">TrackImage follows the repository’s <b>main</b> branch, not its releases — what you get is what the repository holds right now. An update downloads that branch, checks the archive, copies the database to <b>Userdata-backup-v'+TI_VERSION+'.zip</b> beside the installation, and then restarts into the new version. Your pictures, database, settings and the tagging model stay where they are. If the swap fails at any point the previous version is put back.</div>'
    +'</div>';
 }
 
@@ -513,7 +513,7 @@ async function checkUpdates(){
     return;
   }
   if(!r.newer){
-    out.innerHTML='<div class="proc-hint" style="color:var(--success)">\u2713 v'+esc(r.current)+' is the newest release.</div>';
+    out.innerHTML='<div class="proc-hint" style="color:var(--success)">\u2713 v'+esc(r.current)+' \u2014 nothing newer on '+esc(r.branch||'main')+'.</div>';
     return;
   }
   var notes=esc(r.notes||'').replace(/\n/g,'<br>');
@@ -526,10 +526,9 @@ async function checkUpdates(){
            :('<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
              +'<button class="btn btn-sm btn-primary" onclick="installUpdate()">Download &amp; install'+(r.asset_size?(' \u2014 '+esc(_updFmtMB(r.asset_size))):'')+'</button>'
              +'<a class="btn btn-sm" href="'+esc(r.page)+'" target="_blank" rel="noopener">Open on GitHub</a></div>'
-             /* Nothing was attached to the release, so what is fetched is the
-                source archive of the tag -- the same files, said plainly rather
-                than left for the user to wonder about. */
-             +(r.asset_source?('<div class="proc-hint">No file is attached to this release, so the source archive of tag '+esc(r.tag||'')+' is used \u2014 it holds the same folders TrackImage runs from. Its size is only known once the download starts.</div>'):'')))
+             /* Where this comes from, said plainly rather than left for the
+                user to wonder about. */
+             +'<div class="proc-hint">Taken from the <b>'+esc(r.branch||'main')+'</b> branch'+(r.sha?(' at '+esc(r.sha)):'')+' \u2014 the repository\u2019s own folders, the same ones TrackImage runs from. GitHub packs that archive on request, so its size is only known once the download starts.</div>'))
    +'<div id="upd-prog" style="margin-top:12px"></div>';
 }
 

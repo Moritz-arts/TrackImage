@@ -1,6 +1,23 @@
 """
 TrackImage v4.58
 
+--- v4.59 ---
+- TrackImage follows the repository's main branch instead of its releases. A
+  release was a snapshot somebody had to remember to attach a file to, and a
+  forgotten one left the app announcing a version it could not fetch. The
+  branch is always there and always complete: the check reads the version out
+  of config.py as it stands in the branch, and the install takes the archive
+  GitHub builds from it -- the same folders TrackImage runs from.
+- The version is raised automatically on every push to that branch, by a
+  workflow that rewrites it in config.py and in the five places the same number
+  is shown to a human. A number nobody remembers to raise is a number that
+  quietly stops meaning anything, and that is what the check rests on.
+  [skip version] in a commit message pushes without raising it.
+- The archive is verified as before -- intact, actually TrackImage, and newer
+  than what is installed. It is no longer required to match the version that
+  was announced a moment earlier: a branch moves, and someone pushing between
+  the check and the download is not an error worth refusing an update over.
+
 --- v4.58 ---
 - Full view: the library beside the picture works. The open picture carries its
   own copy of the folder and tag columns, so every id in them exists twice, and

@@ -1,0 +1,51 @@
+# TrackImage follows this branch rather than its releases, and the updater only
+# offers what carries a higher version than the one installed. So the version
+# has to move whenever the code does -- and that is done here rather than by
+# hand, because a number nobody remembers to raise is a number that silently
+# stops meaning anything.
+#
+# Put [skip version] in a commit message to push without raising it (a typo in
+# the README, say). The bump commit itself is pushed with GITHUB_TOKEN, which
+# by design starts no further workflow runs; [skip ci] says the same thing out
+# loud, so nothing here can chase its own tail.
+name: Raise the version
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: ${{ !contains(github.event.head_commit.message, '[skip version]') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Raise the version by one
+        id: bump
+        run: python3 .github/bump_version.py
+
+      - name: Commit and push it
+        run: |
+          if git diff --quiet; then
+            echo "Nothing to commit -- no version line moved."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "v${{ steps.bump.outputs.version }} [skip ci]"
+          # Somebody may have pushed while this ran. Rebase onto whatever is
+          # there now and try once more; a second failure means the branch is
+          # moving faster than this job and the next push will raise it anyway.
+          git push origin HEAD:main || {
+            git pull --rebase origin main
+            git push origin HEAD:main
+          }

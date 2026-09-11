@@ -1,4 +1,5 @@
-"""Asking GitHub whether a newer TrackImage exists, and putting it in place.
+"""Asking GitHub whether the branch carries a newer TrackImage, and putting it
+in place.
 
 Layer 20 of 27 -- see trackimage/__init__.py for the order these load in.
 
@@ -28,16 +29,31 @@ from .appconfig import _app_config_load, _app_config_save
 
 GITHUB_OWNER = "Moritz-arts"
 GITHUB_REPO = "TrackImage"
-UPDATE_CHANNEL = "stable"   # the only channel there is
+#: The branch TrackImage follows. Releases are no longer what an update is made
+#: of: a release is a snapshot somebody has to remember to attach a file to, and
+#: a forgotten one left the app announcing a version it could not fetch. The
+#: branch is always there, always complete, and the version inside it is raised
+#: automatically on every push -- so what is offered here is exactly what the
+#: repository holds.
+BRANCH = "main"
+UPDATE_CHANNEL = BRANCH
 AUTO_CHECK_DEFAULT = False  # a check happens when the button is pressed
 
-API_LATEST = "https://api.github.com/repos/%s/%s/releases/latest"
-RELEASES_PAGE = "https://github.com/%s/%s/releases"
-#: The archive GitHub builds from a tag -- the "Source code (zip)" every release
-#: carries whether or not a file was attached to it. Written in the
-#: github.com/<owner>/<repo>/ form rather than the API's zipball_url so it
-#: passes the same origin check as an attached asset.
-SOURCE_ZIP = "https://github.com/%s/%s/archive/refs/tags/%s.zip"
+#: The version as it stands in the branch, read straight out of the one file
+#: that defines it. One small request, and no dependence on anybody having
+#: tagged anything.
+RAW_VERSION = ("https://raw.githubusercontent.com/%s/%s/%s/"
+               "Trackimage_files/trackimage/config.py")
+#: What that branch last received -- the message and the date shown with the
+#: offer. Best effort: the update does not depend on it.
+API_COMMIT = "https://api.github.com/repos/%s/%s/commits/%s"
+#: The archive GitHub builds from a branch. Written in the
+#: github.com/<owner>/<repo>/ form so it passes the same origin check an
+#: uploaded release asset used to.
+BRANCH_ZIP = "https://github.com/%s/%s/archive/refs/heads/%s.zip"
+BRANCH_PAGE = "https://github.com/%s/%s/tree/%s"
+
+_VERSION_RE = r'^VERSION\s*=\s*["\']([^"\']+)["\']'
 
 #: Where the install lives. APP_DIR is Trackimage_files; ROOT_DIR holds it and
 #: the launchers, and is what the swap actually rearranges.
@@ -46,6 +62,7 @@ STAGE_DIR = os.path.join(ROOT_DIR, "_ti_update")
 
 _NET_TIMEOUT = 20
 _MAX_ZIP = 500 * 1024 * 1024      # a release is under a megabyte; this is a guard
+_MAX_TEXT = 256 * 1024            # config.py is a few kilobytes
 _UA = "TrackImage/%s (+https://github.com/%s/%s)" % (VERSION, GITHUB_OWNER, GITHUB_REPO)
 
 #: Progress of an install, read by /api/update/status.
@@ -120,70 +137,78 @@ def _get_json(url):
         return json.loads(r.read().decode("utf-8", "replace"))
 
 
+def _get_text(url):
+    req = urllib.request.Request(url, headers={
+        "Accept": "text/plain",
+        "User-Agent": _UA,
+    })
+    with urllib.request.urlopen(req, timeout=_NET_TIMEOUT) as r:
+        return r.read(_MAX_TEXT).decode("utf-8", "replace")
+
+
+def _branch_version():
+    """The version the branch carries, read out of its config.py."""
+    src = _get_text(RAW_VERSION % (GITHUB_OWNER, GITHUB_REPO,
+                                   urllib.parse.quote(BRANCH, safe="")))
+    m = re.search(_VERSION_RE, src, re.M)
+    if not m:
+        raise RuntimeError("%s has no readable version." % BRANCH)
+    return m.group(1)
+
+
 def check_for_update():
-    """What GitHub says the newest release is. Never raises -- returns a dict."""
+    """What the branch currently holds. Never raises -- returns a dict."""
     if not is_configured():
         return {"ok": False, "error": "The updater has no repository configured."}
-    url = API_LATEST % (GITHUB_OWNER, GITHUB_REPO)
     try:
-        data = _get_json(url)
+        latest = _branch_version()
     except Exception as e:
         msg = str(e)
         if "404" in msg:
             return {"ok": False, "current": VERSION,
-                    "error": "No release has been published yet."}
+                    "error": "Branch %s is not there, or holds no TrackImage."
+                             % BRANCH}
         if "403" in msg:
             return {"ok": False, "current": VERSION,
                     "error": "GitHub is rate limiting this address. Try again later."}
         return {"ok": False, "current": VERSION,
                 "error": "Could not reach GitHub: %s" % msg}
 
-    tag = data.get("tag_name") or ""
-    # A release marked as a pre-release never reaches releases/latest, so
-    # anything arriving here is meant for everyone.
-    asset = None
-    for a in (data.get("assets") or []):
-        name = (a.get("name") or "").lower()
-        if name.endswith(".zip"):
-            asset = a
-            break
+    # What the branch last received. Nice to read before installing, and never
+    # a reason to fail: the version above is what the decision rests on.
+    sha = date = notes = ""
+    page = BRANCH_PAGE % (GITHUB_OWNER, GITHUB_REPO, BRANCH)
+    try:
+        head = _get_json(API_COMMIT % (GITHUB_OWNER, GITHUB_REPO,
+                                       urllib.parse.quote(BRANCH, safe="")))
+        sha = (head.get("sha") or "")[:7]
+        commit = head.get("commit") or {}
+        notes = (commit.get("message") or "")[:8000]
+        date = ((commit.get("committer") or {}).get("date") or "")[:10]
+        page = head.get("html_url") or page
+    except Exception:
+        pass
 
-    asset_name = (asset or {}).get("name") or ""
-    asset_url = (asset or {}).get("browser_download_url") or ""
-    asset_size = int((asset or {}).get("size") or 0)
-    from_source = False
-    if not asset_url and tag:
-        # No file was attached to the release. That is not the dead end it used
-        # to be: TrackImage ships as the repository's own folders, so the source
-        # archive GitHub builds from the tag IS the release -- same files, same
-        # layout, and _verify still has to find the version it claims inside it.
-        # Its size is not known until the download runs, because GitHub packs
-        # that archive on the fly.
-        asset_url = SOURCE_ZIP % (GITHUB_OWNER, GITHUB_REPO,
-                                  urllib.parse.quote(tag, safe=""))
-        asset_name = "%s-%s.zip" % (GITHUB_REPO, tag)
-        asset_size = 0
-        from_source = True
-
-    out = {
+    return {
         "ok": True,
         "current": VERSION,
-        "latest": tag.lstrip("vV") or "?",
-        "tag": tag,
-        "newer": _newer(tag, VERSION),
-        "name": data.get("name") or tag,
-        "notes": (data.get("body") or "")[:8000],
-        "page": data.get("html_url") or (RELEASES_PAGE % (GITHUB_OWNER, GITHUB_REPO)),
-        "published": (data.get("published_at") or "")[:10],
-        "asset_name": asset_name,
-        "asset_url": asset_url,
-        "asset_size": asset_size,
-        "asset_source": from_source,
+        "latest": latest,
+        "tag": "",
+        "branch": BRANCH,
+        "sha": sha,
+        "newer": _newer(latest, VERSION),
+        "name": "%s · v%s" % (BRANCH, latest),
+        "notes": notes,
+        "page": page,
+        "published": date,
+        # GitHub packs a branch archive on the fly, so its size is not known
+        # until the download is running.
+        "asset_name": "%s-%s.zip" % (GITHUB_REPO, BRANCH),
+        "asset_url": BRANCH_ZIP % (GITHUB_OWNER, GITHUB_REPO,
+                                   urllib.parse.quote(BRANCH, safe="")),
+        "asset_size": 0,
+        "asset_source": True,
     }
-    if out["newer"] and not out["asset_url"]:
-        out["warn"] = ("Release %s carries no ZIP and no tag to build one from, "
-                       "so it cannot be installed from here." % (tag or "?"))
-    return out
 
 
 def _download(url, dest):
@@ -208,7 +233,7 @@ def _download(url, dest):
                     _set("downloading", 5 + int(got * 55 / total),
                          "%.1f of %.1f MB" % (got / 1048576.0, total / 1048576.0))
                 else:
-                    # An archive GitHub packs from a tag arrives chunked, with no
+                    # An archive GitHub packs from a branch arrives chunked, with no
                     # length announced: there is nothing to be a percentage of,
                     # so the bar creeps and the megabytes carry the truth.
                     _set("downloading", min(58, 5 + int(got / 1048576.0 * 4)),
@@ -219,9 +244,10 @@ def _download(url, dest):
 def _find_prefix(zf):
     """Where Trackimage_files sits inside the archive.
 
-    A release ZIP built from the unpacked folder carries a wrapper directory
-    (TrackImage_v4.57/Trackimage_files/...); one zipped from inside does not.
-    Both are accepted by looking for the one file that must exist either way.
+    An archive GitHub builds from a branch carries a wrapper directory
+    (TrackImage-main/Trackimage_files/...); one zipped by hand from inside the
+    folder does not. Both are accepted by looking for the one file that must
+    exist either way.
     """
     marker = "Trackimage_files/trackimage/config.py"
     for name in zf.namelist():
@@ -231,11 +257,16 @@ def _find_prefix(zf):
     return None
 
 
-def _verify(zip_path, expect_tag):
-    """The archive really is a TrackImage release, and the version it claims.
+def _verify(zip_path, expect_version=None):
+    """The archive really is TrackImage, and really is newer.
 
-    Guards against a half-finished download, against an asset that is something
-    else entirely, and against path traversal in the archive.
+    Guards against a half-finished download, against an archive that is
+    something else entirely, and against path traversal inside it.
+
+    A branch moves, so what was announced a minute ago and what arrived can
+    differ by a push. That is not an error -- being newer than what is
+    installed is the condition that matters; the announced version is only
+    worth a line in the log.
     """
     with zipfile.ZipFile(zip_path) as zf:
         bad = zf.testzip()
@@ -250,15 +281,16 @@ def _verify(zip_path, expect_tag):
             raise RuntimeError("This ZIP is not a TrackImage release -- "
                                "Trackimage_files/trackimage/config.py is missing.")
         src = zf.read(prefix + "Trackimage_files/trackimage/config.py").decode("utf-8", "replace")
-        m = re.search(r'^VERSION\s*=\s*["\']([^"\']+)["\']', src, re.M)
+        m = re.search(_VERSION_RE, src, re.M)
         if not m:
             raise RuntimeError("The archive has no readable version.")
         found = m.group(1)
-        if expect_tag and parse_version(found) != parse_version(expect_tag):
-            raise RuntimeError("The release is tagged %s but contains %s."
-                               % (expect_tag, found))
+        if expect_version and parse_version(found) != parse_version(expect_version):
+            log("Update: %s said v%s, the archive carries v%s -- taking the "
+                "archive." % (BRANCH, expect_version, found))
         if not _newer(found, VERSION):
-            raise RuntimeError("The archive is not newer than what is installed.")
+            raise RuntimeError("The archive carries v%s, which is not newer than "
+                               "the installed v%s." % (found, VERSION))
         return found, prefix
 
 
@@ -402,7 +434,7 @@ def _run(info):
         _download(info["asset_url"], zip_path)
 
         _set("verifying", 62, "checking the archive")
-        found, prefix = _verify(zip_path, info.get("tag"))
+        found, prefix = _verify(zip_path, info.get("latest"))
 
         _set("backing-up", 68, "copying the database")
         try:
@@ -466,6 +498,6 @@ def start_install(info):
         if _state["phase"] not in ("idle", "failed"):
             return False
         _state.update({"phase": "downloading", "pct": 1, "detail": "",
-                       "error": "", "target": info.get("tag") or ""})
+                       "error": "", "target": info.get("latest") or ""})
     threading.Thread(target=_run, args=(info,), daemon=True).start()
     return True
