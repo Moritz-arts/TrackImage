@@ -1,12 +1,9 @@
 # TrackImage — version history
 
 Every push to `main` raises the version by one and adds its entry here
-automatically; the same text becomes that version's release notes on GitHub.
-Newest first.
-
-## v4.60 — 2026-09-11
-
-- Maintenance.
+automatically -- one line per change, newest first. A release is drafted by hand
+from the tag of whichever version is judged ready, and this is the text to paste
+into it.
 
 ## v4.59
 - TrackImage follows the repository's main branch instead of its releases. A

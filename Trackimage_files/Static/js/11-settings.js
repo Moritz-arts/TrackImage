@@ -498,7 +498,7 @@ function channelBtns(){
 function channelHintHtml(){
   return (_updChannel==='latest')
     ? 'Every change, as soon as it reaches the <b>main</b> branch \u2014 the version rises with each one, so an update can arrive several times a day. Newest work first, and the first to meet whatever it got wrong.'
-    : 'Only versions that have been declared finished. Every version is published either way; this channel waits until one is marked as the stable release.';
+    : 'Only versions that have been looked at and released. Fewer updates, each one somebody decided was ready to hand out.';
 }
 
 function updateCardHtml(){

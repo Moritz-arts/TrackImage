@@ -5,11 +5,14 @@
 answer -- the commits are right there -- but only if somebody writes it down
 while it is still one version's worth of work. So it is written here, by the
 same workflow that raises the number: every commit since the previous tag
-becomes a line under the new heading, and that heading is what the release
-notes on GitHub say too.
+becomes one line under the new heading.
+
+One line, not a paragraph. The reasoning is in the commit, a click away and
+never stale; what this file is for is the other question, and that is answered
+by a list you can read in ten seconds and paste into a release or a forum post.
 
 Called as: changelog_entry.py <new-version>
-Prints the entry body on stdout, so the workflow can hand it to `gh release`.
+Prints the entry body on stdout.
 """
 import os
 import pathlib
@@ -25,8 +28,6 @@ CHANGELOG = ROOT / "CHANGELOG.md"
 #: otherwise open every entry with the number the entry is already titled with.
 _BUMP = re.compile(r"^v[\d.]+(\s*\[skip ci\])?$")
 
-#: Key: value lines git puts at the foot of a message.
-_TRAILER = re.compile(r"^[A-Za-z][A-Za-z-]*:\s")
 
 
 def _git(*args):
@@ -64,22 +65,24 @@ def commits_since(tag):
 
 
 def entry_body(tag):
-    lines = []
-    for subject, body in commits_since(tag):
+    """One line per change: what it was, nothing else.
+
+    The reasoning belongs in the commit, which is a click away and does not go
+    stale. What this list is for is the other question -- what happened between
+    two versions -- and that is answered by a list you can read in ten seconds
+    and paste into a post, not by four paragraphs per entry.
+    """
+    lines, seen = [], set()
+    for subject, _body in commits_since(tag):
+        subject = subject.strip().rstrip(".")
+        key = subject.lower()
+        if not subject or key in seen:
+            continue
+        seen.add(key)
         lines.append("- %s" % subject)
-        for para in [p.strip() for p in body.split("\n\n") if p.strip()]:
-            # A block of trailers -- Co-Authored-By, Claude-Session, Signed-off-by
-            # -- says who committed it, not what changed. They arrive together at
-            # the end, so a paragraph made of nothing else is dropped whole.
-            if all(_TRAILER.match(ln) for ln in para.splitlines() if ln.strip()):
-                continue
-            lines.append("")
-            for ln in para.splitlines():
-                lines.append("  %s" % ln.strip())
-        lines.append("")
     if not lines:
         lines = ["- Maintenance."]
-    return "\n".join(lines).strip()
+    return "\n".join(lines)
 
 
 def prepend(version, body):
@@ -106,12 +109,6 @@ def main():
     body = entry_body(previous_tag())
     prepend(version, body)
     print(body)
-    # Handed to `gh release` as a file rather than as a shell argument: this
-    # text is whatever was written in a commit message, and a commit message is
-    # allowed to contain quotes, backticks and $(...).
-    notes_file = os.environ.get("TI_NOTES_FILE")
-    if notes_file:
-        pathlib.Path(notes_file).write_text(body + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

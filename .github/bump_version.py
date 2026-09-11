@@ -34,6 +34,10 @@ CONFIG = ROOT / "Trackimage_files" / "trackimage" / "config.py"
 PLACES = [
     (CONFIG,
      r'^(?P<pre>VERSION\s*=\s*")(?P<v>[^"]+)(?=")'),
+    # The repository's front page. Whoever opens it should be able to see which
+    # version main is without reading a commit log.
+    (ROOT / "README.md",
+     r'^(?P<pre>\*\*Version )(?P<v>[\d.]+)(?=\*\*)'),
     (ROOT / "Trackimage_files" / "app.py",
      r'^(?P<pre>TrackImage v)(?P<v>[\d.]+)(?=[ \t]*\r?$)'),
     (ROOT / "README.txt",

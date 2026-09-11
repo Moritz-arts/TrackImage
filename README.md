@@ -1,5 +1,7 @@
 # TrackImage
 
+**Version 4.59** · [what changed](CHANGELOG.md) · [releases](../../releases)
+
 A local danbooru-style image library that never leaves your machine.
 
 TrackImage catalogues pictures and video you already have on disk. It reads the
@@ -7,12 +9,12 @@ metadata that is in them, tags them with a local ML model, finds duplicates, and
 gives you a gallery you can search. There is no account, no sync, no telemetry,
 and no cloud. The only connections it ever makes are the Python packages it
 installs on first start, the tagging model when you ask for it, and a check
-against this page's Releases when you press the button.
+against this repository when you press the button.
 
 ## Install
 
-1. Download the ZIP from [Releases](../../releases/latest) — the file attached to
-   the release, not the source archive.
+1. Download **Source code (zip)** from [the latest release](../../releases/latest).
+   That archive is the program: no build step, nothing to compile.
 2. Unpack it into an **empty** folder.
 3. Start it:
 
@@ -36,13 +38,24 @@ one is available and on the processor otherwise. Everything stays local.
 
 ## Updating
 
-Settings › Repair & Update has a button that checks this repository for a newer
-release. It downloads it, verifies the archive, copies your database to
+Settings › Repair & Update checks this repository and offers two channels:
+
+| | |
+|---|---|
+| **Stable** | the newest release. Versions that have been looked at and declared finished. |
+| **Latest** | the `main` branch as it stands. Every change, minutes after it is pushed. |
+
+Both use the same version numbers and the same files — they differ only in which
+commit they point at. The version is raised on every push to `main`, and
+[CHANGELOG.md](CHANGELOG.md) lists what each one brought.
+
+Whichever channel you pick, the button downloads it, verifies the archive,
+copies your database to
 `Userdata-backup-v<version>.zip` beside the installation, and restarts into the
 new version. Your pictures, database, settings and the tagging model are carried
 across untouched. If anything goes wrong the previous version is put back.
 
-You can also just download the new ZIP and unpack it into a new empty folder,
+You can also just download the source ZIP and unpack it into a new empty folder,
 then move your old `Trackimage_files/Userdata` into it. That works too and always
 will.
 
@@ -55,7 +68,7 @@ TrackImage/
     ├─ app.py, FOLDER_MAP.md
     ├─ trackimage/   the Python package, 27 layers
     ├─ Static/       index.html, css, js, fonts, icons
-    ├─ models/       created on first use, never in a release
+    ├─ models/       created on first use, never in an archive
     └─ Userdata/     your database and logs, never touched by an update
 ```
 
