@@ -14,7 +14,6 @@ by a list you can read in ten seconds and paste into a release or a forum post.
 Called as: changelog_entry.py <new-version>
 Prints the entry body on stdout.
 """
-import os
 import pathlib
 import re
 import subprocess

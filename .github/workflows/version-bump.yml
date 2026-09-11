@@ -65,7 +65,13 @@ jobs:
             echo "Nothing moved -- no version line, no changelog."
             exit 0
           fi
-          SUBJECT=$(printf '%s' "$HEAD_MSG" | head -1 | cut -c1-64)
+          # First line, shortened at a word if it is long. A plain cut would stop
+          # mid-word, and "the history stays s (v4.60)" reads like a mistake.
+          SUBJECT=${HEAD_MSG%%$'\n'*}
+          if [ ${#SUBJECT} -gt 64 ]; then
+            SUBJECT="${SUBJECT:0:64}"
+            SUBJECT="${SUBJECT% *}…"
+          fi
           [ -n "$SUBJECT" ] || SUBJECT="Changes"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
