@@ -16,6 +16,16 @@ INSTALL
   Python 3.10, 3.11 or 3.12.
 
 
+WHAT IS NEW IN v4.59
+  - Updates come from the repository's main branch now, not from releases.
+    Settings -> Repair & Update reads the version the branch carries and
+    installs the branch itself, so what you get is what the repository holds
+    rather than whatever was last packed into a release.
+
+  - The version number is raised automatically whenever something is pushed
+    there, so "newer" always means newer.
+
+
 WHAT IS NEW IN v4.58
   - Full view: the folder tree and the tag list beside the picture work. A
     branch clicked there opens, and clicking a folder, a name, a tag or a
