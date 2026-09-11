@@ -19,7 +19,8 @@ from .logging_setup import _LOG_PATH, _console_lines, _console_lock, log
 from .appconfig import NAS_ACTIVE, NAS_PROTECTION, _app_config_load, _app_config_save
 from .updater import (check_for_update, start_install, status as update_status,
                        auto_check_enabled, set_auto_check, is_configured,
-                       GITHUB_OWNER, GITHUB_REPO)
+                       channel as update_channel, set_channel as set_update_channel,
+                       CHANNELS, GITHUB_OWNER, GITHUB_REPO)
 from .db import _db_commit_retry, _db_file_bytes, _db_write_lock, _get_thread_db, _vacuum, _vacuum_run, get_db
 from .events import _active_tabs, _cancel_shutdown_timer, _check_shutdown, _restart_self, _tabs_lock, sse_clients, sse_lock
 from .thumbnails import _thumb_cfg, _thumb_regen, _thumb_regen_worker, _thumb_target_workers, _thumb_workers_cfg
@@ -225,6 +226,23 @@ def api_update_install():
 @app.route("/api/update/status")
 def api_update_status():
     return jsonify(update_status())
+
+
+@app.route("/api/update/channel", methods=["GET", "POST"])
+def api_update_channel():
+    """Which of the two channels an update is taken from.
+
+    stable = the newest release somebody has declared finished;
+    latest = the main branch as it stands.
+    """
+    if request.method == "POST":
+        name = (request.get_json(silent=True) or {}).get("channel")
+        try:
+            name = set_update_channel(name)
+        except ValueError:
+            return jsonify({"error": "Unknown channel."}), 400
+        log("Update channel set to %s" % name)
+    return jsonify({"channel": update_channel(), "channels": list(CHANNELS)})
 
 
 @app.route("/api/update/auto", methods=["GET", "POST"])

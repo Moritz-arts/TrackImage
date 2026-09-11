@@ -29,14 +29,26 @@ from .appconfig import _app_config_load, _app_config_save
 
 GITHUB_OWNER = "Moritz-arts"
 GITHUB_REPO = "TrackImage"
-#: The branch TrackImage follows. Releases are no longer what an update is made
-#: of: a release is a snapshot somebody has to remember to attach a file to, and
-#: a forgotten one left the app announcing a version it could not fetch. The
-#: branch is always there, always complete, and the version inside it is raised
-#: automatically on every push -- so what is offered here is exactly what the
-#: repository holds.
+#: Two channels, one repository.
+#:
+#: "stable" is a version somebody has looked at and declared finished. Every
+#: version is published automatically as a pre-release, and GitHub's
+#: releases/latest never returns one of those -- so declaring a stable version
+#: is the single click that takes the pre-release mark off it, and this channel
+#: follows wherever that mark sits.
+#:
+#: "latest" is the branch itself: whatever main holds this minute. Its version
+#: is raised on every push, so the two channels use the same numbers and the
+#: same comparison; they differ only in which commit they point at.
+#:
+#: Neither needs a file to have been uploaded anywhere. What gets installed is
+#: the archive GitHub builds from the tag or the branch -- the repository's own
+#: folders, which is exactly what TrackImage runs from.
+CHANNEL_STABLE = "stable"
+CHANNEL_LATEST = "latest"
+CHANNELS = (CHANNEL_STABLE, CHANNEL_LATEST)
+CHANNEL_DEFAULT = CHANNEL_STABLE
 BRANCH = "main"
-UPDATE_CHANNEL = BRANCH
 AUTO_CHECK_DEFAULT = False  # a check happens when the button is pressed
 
 #: The version as it stands in the branch, read straight out of the one file
@@ -47,10 +59,14 @@ RAW_VERSION = ("https://raw.githubusercontent.com/%s/%s/%s/"
 #: What that branch last received -- the message and the date shown with the
 #: offer. Best effort: the update does not depend on it.
 API_COMMIT = "https://api.github.com/repos/%s/%s/commits/%s"
-#: The archive GitHub builds from a branch. Written in the
-#: github.com/<owner>/<repo>/ form so it passes the same origin check an
+#: The newest release that is not marked as a pre-release.
+API_LATEST = "https://api.github.com/repos/%s/%s/releases/latest"
+RELEASES_PAGE = "https://github.com/%s/%s/releases"
+#: The archives GitHub builds from a branch or a tag. Written in the
+#: github.com/<owner>/<repo>/ form so they pass the same origin check an
 #: uploaded release asset used to.
 BRANCH_ZIP = "https://github.com/%s/%s/archive/refs/heads/%s.zip"
+TAG_ZIP = "https://github.com/%s/%s/archive/refs/tags/%s.zip"
 BRANCH_PAGE = "https://github.com/%s/%s/tree/%s"
 
 _VERSION_RE = r'^VERSION\s*=\s*["\']([^"\']+)["\']'
@@ -79,6 +95,21 @@ _lock = threading.Lock()
 def is_configured():
     """True once a repository has been named. Nothing tries the network before."""
     return bool(GITHUB_OWNER and GITHUB_REPO)
+
+
+def channel():
+    c = str(_app_config_load().get("update_channel", CHANNEL_DEFAULT))
+    return c if c in CHANNELS else CHANNEL_DEFAULT
+
+
+def set_channel(name):
+    name = str(name or "").strip().lower()
+    if name not in CHANNELS:
+        raise ValueError("Unknown channel %r" % name)
+    cfg = _app_config_load()
+    cfg["update_channel"] = name
+    _app_config_save(cfg)
+    return name
 
 
 def auto_check_enabled():
@@ -156,24 +187,9 @@ def _branch_version():
     return m.group(1)
 
 
-def check_for_update():
-    """What the branch currently holds. Never raises -- returns a dict."""
-    if not is_configured():
-        return {"ok": False, "error": "The updater has no repository configured."}
-    try:
-        latest = _branch_version()
-    except Exception as e:
-        msg = str(e)
-        if "404" in msg:
-            return {"ok": False, "current": VERSION,
-                    "error": "Branch %s is not there, or holds no TrackImage."
-                             % BRANCH}
-        if "403" in msg:
-            return {"ok": False, "current": VERSION,
-                    "error": "GitHub is rate limiting this address. Try again later."}
-        return {"ok": False, "current": VERSION,
-                "error": "Could not reach GitHub: %s" % msg}
-
+def _check_latest():
+    """What main holds this minute."""
+    latest = _branch_version()
     # What the branch last received. Nice to read before installing, and never
     # a reason to fail: the version above is what the decision rests on.
     sha = date = notes = ""
@@ -188,27 +204,81 @@ def check_for_update():
         page = head.get("html_url") or page
     except Exception:
         pass
-
     return {
-        "ok": True,
-        "current": VERSION,
         "latest": latest,
         "tag": "",
-        "branch": BRANCH,
         "sha": sha,
-        "newer": _newer(latest, VERSION),
         "name": "%s · v%s" % (BRANCH, latest),
         "notes": notes,
         "page": page,
         "published": date,
-        # GitHub packs a branch archive on the fly, so its size is not known
-        # until the download is running.
         "asset_name": "%s-%s.zip" % (GITHUB_REPO, BRANCH),
         "asset_url": BRANCH_ZIP % (GITHUB_OWNER, GITHUB_REPO,
                                    urllib.parse.quote(BRANCH, safe="")),
+    }
+
+
+def _check_stable():
+    """The newest version somebody has taken the pre-release mark off."""
+    data = _get_json(API_LATEST % (GITHUB_OWNER, GITHUB_REPO))
+    tag = data.get("tag_name") or ""
+    if not tag:
+        raise RuntimeError("The newest release carries no tag.")
+    return {
+        "latest": tag.lstrip("vV"),
+        "tag": tag,
+        "sha": "",
+        "name": data.get("name") or tag,
+        "notes": (data.get("body") or "")[:8000],
+        "page": data.get("html_url") or (RELEASES_PAGE % (GITHUB_OWNER, GITHUB_REPO)),
+        "published": (data.get("published_at") or "")[:10],
+        "asset_name": "%s-%s.zip" % (GITHUB_REPO, tag),
+        "asset_url": TAG_ZIP % (GITHUB_OWNER, GITHUB_REPO,
+                                urllib.parse.quote(tag, safe="")),
+    }
+
+
+def check_for_update():
+    """What the chosen channel currently offers. Never raises -- returns a dict."""
+    if not is_configured():
+        return {"ok": False, "error": "The updater has no repository configured."}
+    ch = channel()
+    try:
+        found = _check_stable() if ch == CHANNEL_STABLE else _check_latest()
+    except Exception as e:
+        msg = str(e)
+        base = {"ok": False, "current": VERSION, "channel": ch}
+        if "404" in msg:
+            if ch == CHANNEL_STABLE:
+                # Every version is published as a pre-release, and until one is
+                # marked as the latest release there is no stable version to
+                # offer. Saying so is more use than "not found".
+                base["error"] = ("No version has been declared stable yet. "
+                                 "Switch to Latest to follow the %s branch."
+                                 % BRANCH)
+            else:
+                base["error"] = ("Branch %s is not there, or holds no "
+                                 "TrackImage." % BRANCH)
+            return base
+        if "403" in msg:
+            base["error"] = "GitHub is rate limiting this address. Try again later."
+            return base
+        base["error"] = "Could not reach GitHub: %s" % msg
+        return base
+
+    out = dict(found)
+    out.update({
+        "ok": True,
+        "current": VERSION,
+        "channel": ch,
+        "branch": BRANCH,
+        "newer": _newer(found["latest"], VERSION),
+        # GitHub packs these archives on the fly, so their size is not known
+        # until the download is running.
         "asset_size": 0,
         "asset_source": True,
-    }
+    })
+    return out
 
 
 def _download(url, dest):

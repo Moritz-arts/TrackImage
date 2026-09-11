@@ -1,0 +1,14 @@
+# Python leaves these beside the source; they are rebuilt on every run and have
+# no business in an archive people download and unpack.
+__pycache__/
+*.py[cod]
+
+# This machine's library, not the program: the database, the logs, the settings
+# and the tagging model. The updater carries them across an update rather than
+# taking them from an archive, and they must never travel with one.
+Trackimage_files/Userdata/
+Trackimage_files/models/
+
+# What an update stages before the swap.
+_ti_update/
+Userdata-backup-v*.zip
