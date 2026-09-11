@@ -9,9 +9,9 @@ function _tagAvail(){var t=S._tag||{};return !!(t.runtime&&t.model);}
 
 function _tagInstallHint(pre){if(_tagAvail())return '';var t=S._tag||{},dl=t.model_download||{};if(dl.active)return '<div class="proc-hint tag-install-hint" data-pre="'+esc(pre||'')+'" style="padding:6px 10px">Auto-tagging is installing\u2026 '+(dl.phase==='runtime'?((dl.all_total?Math.min(99,Math.round(dl.all_done*100/dl.all_total)):0)+'% runtime'):((dl.total?Math.round(dl.done*100/dl.total):0)+'%'))+'</div>';return '<div class="proc-hint tag-install-hint" data-pre="'+esc(pre||'')+'" style="padding:6px 10px">'+(pre||'Auto-tagging not installed')+' \u2014 <a onclick="toggleSettings()" style="color:var(--accent);cursor:pointer">install it in Settings</a>. Manual tags still work (detail view \u2192 +).</div>';}
 
-function filterByCharacter(n,e){closeDrawerAfterPick();if(!n){S.filter.characters=[];S.filter.ratings=[];}else if(e&&(e.ctrlKey||e.metaKey)){var i=S.filter.characters.indexOf(n);if(i>=0)S.filter.characters.splice(i,1);else S.filter.characters.push(n);}else{/* v3.94: clicking the selected entry again clears it -- same rule as folders and star ratings. */S.filter.characters=(S.filter.characters.length===1&&S.filter.characters[0]===n)?[]:[n];}S.selectedImages.clear();if(S.page==='duplicates'){S._dupQuery=null;S.dupGroups=null;S._dupCachedThreshold=null;S._dupCachedChars=null;render();return;}loadImagesReset().then(function(){renderMain();renderTagList();});}
+function filterByCharacter(n,e){closeDrawerAfterPick();detailExitToGallery();if(!n){S.filter.characters=[];S.filter.ratings=[];}else if(e&&(e.ctrlKey||e.metaKey)){var i=S.filter.characters.indexOf(n);if(i>=0)S.filter.characters.splice(i,1);else S.filter.characters.push(n);}else{/* v3.94: clicking the selected entry again clears it -- same rule as folders and star ratings. */S.filter.characters=(S.filter.characters.length===1&&S.filter.characters[0]===n)?[]:[n];}S.selectedImages.clear();if(S.page==='duplicates'){S._dupQuery=null;S.dupGroups=null;S._dupCachedThreshold=null;S._dupCachedChars=null;render();return;}loadImagesReset().then(function(){renderMain();renderTagList();});}
 
-function removeTagChip(n){var i=S.filter.characters.indexOf(n);if(i>=0)S.filter.characters.splice(i,1);S.selectedImages.clear();if(S.page==='duplicates'){S._dupQuery=null;S.dupGroups=null;S._dupCachedThreshold=null;S._dupCachedChars=null;render();return;}loadImagesReset().then(function(){renderMain();renderTagList();});}
+function removeTagChip(n){detailExitToGallery();var i=S.filter.characters.indexOf(n);if(i>=0)S.filter.characters.splice(i,1);S.selectedImages.clear();if(S.page==='duplicates'){S._dupQuery=null;S.dupGroups=null;S._dupCachedThreshold=null;S._dupCachedChars=null;render();return;}loadImagesReset().then(function(){renderMain();renderTagList();});}
 
 async function editTagsSelected(){
     if(!S.selectedImages.size)return;
@@ -106,7 +106,8 @@ h+='<div id="tags-body"'+(_tagsOpen()?'':' style="display:none"')+'><div class="
 
 function updateTagActive(){var sel=(S.tagMode==='tags')?(S.filter.tags||[]):S.filter.characters;document.querySelectorAll('.tag-item').forEach(function(el){var t=el.dataset.tag||'';if(t.indexOf('__r')===0){el.classList.toggle('active',S.filter.ratings.indexOf(parseInt(t.slice(3)))>=0);return;}el.classList.toggle('active',(t==='__all')?(!sel.length&&!S.filter.ratings.length):sel.indexOf(t)>=0);});}
 
-function toggleTagGroup(letter){S.openTagGroups[letter]=!S.openTagGroups[letter];_lsSave('ti_open_taggroups',S.openTagGroups);var grp=document.querySelector('.tag-group[data-letter="'+letter+'"]');var arr=document.getElementById('tga-'+letter);if(grp)grp.classList.toggle('open',S.openTagGroups[letter]!==false);if(arr)arr.classList.toggle('open',S.openTagGroups[letter]!==false);}
+/* Same as the folder tree: both copies of the column fold together. */
+function toggleTagGroup(letter){S.openTagGroups[letter]=!S.openTagGroups[letter];_lsSave('ti_open_taggroups',S.openTagGroups);var open=S.openTagGroups[letter]!==false;document.querySelectorAll('.tag-group[data-letter="'+letter+'"],.tl-arrow[data-letter="'+letter+'"]').forEach(function(el){el.classList.toggle('open',open);});}
 
 function buildTagsHtml(allCount){
     var h=activeFilterChipsHtml();
@@ -150,7 +151,7 @@ function buildTagsHtml(allCount){
     var letters=Object.keys(grouped).sort();
     letters.forEach(function(letter){
         var isOpen=S.openTagGroups[letter]!==false;
-        h+='<div class="tag-letter" onclick="toggleTagGroup(\''+letter+'\')"><span class="tl-arrow'+(isOpen?' open':'')+'" id="tga-'+letter+'">\u25b6</span>'+letter+'</div>';
+        h+='<div class="tag-letter" onclick="toggleTagGroup(\''+letter+'\')"><span class="tl-arrow'+(isOpen?' open':'')+'" id="tga-'+letter+'" data-letter="'+letter+'">\u25b6</span>'+letter+'</div>';
         h+='<div class="tag-group'+(isOpen?' open':'')+'" data-letter="'+letter+'">';
         grouped[letter].forEach(function(c){
             h+='<div class="tag-item'+(S.filter.characters.indexOf(c.name)>=0?' active':'')+'" data-tag="'+esc(c.name)+'" onclick="filterByCharacter(this.dataset.tag,event)"><span>'+esc(c.name)+'</span><span class="count">'+c.image_count+'</span></div>';
@@ -160,7 +161,7 @@ function buildTagsHtml(allCount){
     return h;
 }
 
-function renderTagList(){var el=document.getElementById('tag-list-container');if(!el)return;var allCount=S.filter.search?(S.filteredTotal||0):getFolderTotal();el.innerHTML=buildTagsHtml(allCount);}
+function renderTagList(){var els=document.querySelectorAll('.tag-list');if(!els.length)return;var allCount=S.filter.search?(S.filteredTotal||0):getFolderTotal();var html=buildTagsHtml(allCount);for(var i=0;i<els.length;i++)els[i].innerHTML=html;}
 
 function setTagMode(m){m=(m==='tags')?'tags':'names';if(S.tagMode===m)return;S.tagMode=m;localStorage.setItem('ti_tagmode',m);loadCharacters().then(function(){rerenderTagCol();});}
 
@@ -169,9 +170,9 @@ function tagColInner(allCount){var nm=S.tagMode!=='tags';return '<div class="sid
 /* v4.56: same as the folder column -- the open picture has its own copy. */
 function rerenderTagCol(){var cols=document.querySelectorAll('.tags-col');if(!cols.length)return;var allCount=S.filter.search?(S.filteredTotal||0):getFolderTotal();var html=tagColInner(allCount);for(var i=0;i<cols.length;i++)cols[i].innerHTML=html;}
 
-function filterByTag(n,e){closeDrawerAfterPick();if(!S.filter.tags)S.filter.tags=[];if(!n){S.filter.tags=[];}else if(e&&(e.ctrlKey||e.metaKey)){var i=S.filter.tags.indexOf(n);if(i>=0)S.filter.tags.splice(i,1);else S.filter.tags.push(n);}else{/* v3.94: clicking the selected entry again clears it -- same rule as folders and star ratings. */S.filter.tags=(S.filter.tags.length===1&&S.filter.tags[0]===n)?[]:[n];}S.selectedImages.clear();if(S.page==='duplicates'){S._dupQuery=null;S.dupGroups=null;render();return;}loadImagesReset().then(function(){renderMain();renderTagList();});}
+function filterByTag(n,e){closeDrawerAfterPick();detailExitToGallery();if(!S.filter.tags)S.filter.tags=[];if(!n){S.filter.tags=[];}else if(e&&(e.ctrlKey||e.metaKey)){var i=S.filter.tags.indexOf(n);if(i>=0)S.filter.tags.splice(i,1);else S.filter.tags.push(n);}else{/* v3.94: clicking the selected entry again clears it -- same rule as folders and star ratings. */S.filter.tags=(S.filter.tags.length===1&&S.filter.tags[0]===n)?[]:[n];}S.selectedImages.clear();if(S.page==='duplicates'){S._dupQuery=null;S.dupGroups=null;render();return;}loadImagesReset().then(function(){renderMain();renderTagList();});}
 
-function removeTagFilterChip(n){if(!S.filter.tags)return;var i=S.filter.tags.indexOf(n);if(i>=0)S.filter.tags.splice(i,1);S.selectedImages.clear();if(S.page==='duplicates'){S._dupQuery=null;S.dupGroups=null;S._dupCachedThreshold=null;S._dupCachedChars=null;render();return;}loadImagesReset().then(function(){renderMain();renderTagList();});}
+function removeTagFilterChip(n){if(!S.filter.tags)return;detailExitToGallery();var i=S.filter.tags.indexOf(n);if(i>=0)S.filter.tags.splice(i,1);S.selectedImages.clear();if(S.page==='duplicates'){S._dupQuery=null;S.dupGroups=null;S._dupCachedThreshold=null;S._dupCachedChars=null;render();return;}loadImagesReset().then(function(){renderMain();renderTagList();});}
 
 function _crColor(n){return n==='general'?'hsl(120,65%,45%)':(n==='sensitive'?'hsl(35,85%,50%)':'hsl(0,65%,45%)');}
 

@@ -31,7 +31,7 @@ var mediaHtml;
 if(img.is_video&&isBrowserPlayable(img.filename)){mediaHtml='<video id="detail-video" src="/full/'+img.id+'" controls autoplay onerror="videoPlaybackFailed()" style="max-width:100%;max-height:100%;object-fit:contain"></video>';}
 else if(img.is_video){mediaHtml='<div style="display:flex;flex-direction:column;align-items:center;gap:16px"><img src="/thumb/'+img.id+'?h='+img.fphash+'" '+DRAGGABLE_ATTR+' ondragstart="onGalleryDragStart(event,'+img.id+')" onmousedown="ndPress(event,'+img.id+')" style="max-width:80%;max-height:70vh;border-radius:8px;object-fit:contain"/><button class="btn btn-primary" onclick="openInPlayer('+img.id+')" style="font-size:16px;padding:12px 32px">▶ Open in Player</button></div>';}
 else{mediaHtml='<img id="detail-img" src="/full/'+img.id+'" alt="'+esc(img.filename)+'" '+DRAGGABLE_ATTR+' ondragstart="onGalleryDragStart(event,'+img.id+')" onmousedown="ndPress(event,'+img.id+')"/>';}
-ov.innerHTML=libHtml+'<div class="detail-img-area" id="detail-img-area" oncontextmenu="showGalleryCtx(event,'+img.id+',true)">'+mediaHtml+'</div><div class="detail-sidebar'+(S.detailSidebarCollapsed?' collapsed':'')+'"><div class="ds-collapsed-bar" onclick="toggleDetailSidebar()" title="Expand panel"><span class="ds-arrow">\u25C0</span><span class="cc-label">Info</span></div><div class="detail-panel"><div style="display:flex;gap:6px;align-items:stretch"><div class="ac-wrap" style="position:relative;flex:1"><input class="detail-filename" id="rename-input" value="'+esc(img.filename)+'" onkeydown="if(event.key===\'Enter\'&&!document.querySelector(\'#detail-overlay .ac-list.open\')){this.blur();}" onblur="renameFile()"/></div><span class="ds-collapse-btn" onclick="toggleDetailSidebar()" title="Collapse panel">\u25B6</span></div><div class="detail-folder">'+(img.file_date?new Date(img.file_date*1000).toLocaleDateString():'')+'</div><div class="detail-folder">\ud83d\udcc1 '+esc(img.folder)+'</div><div id="detail-rating" style="font-size:13px;color:'+(img.rating?ratingColor(img.rating):'var(--accent-light)')+';font-weight:600;margin-top:2px">'+(img.rating?img.rating:'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm" onclick="openInExplorer('+img.id+')">\ud83d\udcc2 Explorer</button><button class="btn btn-sm" onclick="revealInLibrary('+img.id+')" title="Show this picture where it lives in TrackImage">\u25C6 TrackImage</button><button class="btn btn-sm" onclick="findSimilar('+img.id+')">\ud83d\udd0d Find Duplicates</button><button class="btn btn-sm btn-warning" onclick="removeMetadataSingle('+img.id+')" title="Strip EXIF / prompt / embedded metadata">Metadata</button><button class="btn btn-sm btn-danger" onclick="deleteImage('+img.id+')">Delete</button></div><div class="detail-nav"><button class="btn btn-sm" onclick="prevImage()" '+(S.currentImageIndex<=0?'disabled':'')+'>← Prev</button><button class="btn btn-sm" onclick="closeDetail()">Back</button><button class="btn btn-sm" onclick="nextImage()" '+(S.currentImageIndex>=S.images.length-1&&S.allLoaded?'disabled':'')+'>Next →</button></div><div class="tags-panel" id="tags-panel">'+tagsPanelHtml(img)+'</div></div><div class="meta-panel" id="meta-panel">'+metaHeaderHtml()+'<div id="meta-body" class="meta-body"'+(_metaOpen()?'':' style="display:none"')+'><div class="meta-empty">Loading...</div></div></div></div>';
+ov.innerHTML=libHtml+'<div class="detail-img-area" id="detail-img-area" oncontextmenu="showGalleryCtx(event,'+img.id+',true)">'+mediaHtml+'</div><div class="detail-sidebar'+(S.detailSidebarCollapsed?' collapsed':'')+'"><div class="ds-collapsed-bar" onclick="toggleDetailSidebar()" title="Expand panel"><span class="ds-arrow">\u25C0</span><span class="cc-label">Info</span></div><div class="detail-panel"><div style="display:flex;gap:6px;align-items:stretch"><div class="ac-wrap" style="position:relative;flex:1"><input class="detail-filename" id="rename-input" value="'+esc(img.filename)+'" onkeydown="if(event.key===\'Enter\'&&!document.querySelector(\'#detail-overlay .ac-list.open\')){this.blur();}" onblur="renameFile()"/></div><span class="ds-collapse-btn" onclick="toggleDetailSidebar()" title="Collapse panel">\u25B6</span></div><div class="detail-folder">'+(img.file_date?new Date(img.file_date*1000).toLocaleDateString():'')+'</div><div class="detail-folder">\ud83d\udcc1 '+esc(img.folder)+'</div><div id="detail-rating" style="font-size:13px;color:'+(img.rating?ratingColor(img.rating):'var(--accent-light)')+';font-weight:600;margin-top:2px">'+(img.rating?img.rating:'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm" onclick="openInExplorer('+img.id+')">\ud83d\udcc2 Locate in Explorer</button><button class="btn btn-sm" onclick="revealInLibrary('+img.id+')" title="Show this picture where it lives in TrackImage">\u25C6 Locate in TrackImage</button><button class="btn btn-sm" onclick="findSimilar('+img.id+')">\ud83d\udd0d Find Duplicates</button><button class="btn btn-sm btn-warning" onclick="removeMetadataSingle('+img.id+')" title="Strip EXIF / prompt / embedded metadata">Wipe metadata</button><button class="btn btn-sm btn-danger" onclick="deleteImage('+img.id+')">Delete</button></div><div class="detail-nav"><button class="btn btn-sm" onclick="prevImage()" '+(S.currentImageIndex<=0?'disabled':'')+'>← Prev</button><button class="btn btn-sm" onclick="closeDetail()">Back</button><button class="btn btn-sm" onclick="nextImage()" '+(S.currentImageIndex>=S.images.length-1&&S.allLoaded?'disabled':'')+'>Next →</button></div><div class="tags-panel" id="tags-panel">'+tagsPanelHtml(img)+'</div></div><div class="meta-panel" id="meta-panel">'+metaHeaderHtml()+'<div id="meta-body" class="meta-body"'+(_metaOpen()?'':' style="display:none"')+'><div class="meta-empty">Loading...</div></div></div></div>';
 document.body.appendChild(ov);S.detailZoom=1;S.detailPan={x:0,y:0};
 var _zp=document.createElement('div');_zp.id='zoom-pct';_zp.title='Zoom \u2014 100% is one image pixel per screen pixel';
 try{var _ia=ov.querySelector('.detail-img-area');if(_ia)_ia.appendChild(_zp);}catch(_){}
@@ -295,9 +295,13 @@ var _sbFocus=null;
 var _sbIdx=-1;
 
 function getSbItems(col){
+    /* With a picture open the gallery is still laid out behind it, so both
+       copies of the column answer a document-wide query. The one beside the
+       picture is the one being looked at. */
+    var root=document.getElementById('detail-overlay')||document;
     if(col==='tags'){
         var items=[];
-        document.querySelectorAll('#tag-list-container .tag-item').forEach(function(el){
+        root.querySelectorAll('.tag-list .tag-item').forEach(function(el){
             if(el.offsetParent!==null)items.push(el);
         });
         return items;
@@ -305,7 +309,7 @@ function getSbItems(col){
     if(col==='folders'){
         var items=[];
         /* Collect all visible tree-toggles */
-        document.querySelectorAll('.sidebar-col .tree-toggle').forEach(function(el){
+        root.querySelectorAll('.sidebar-col .tree-toggle').forEach(function(el){
             if(el.offsetParent!==null)items.push(el);
         });
         return items;
@@ -351,7 +355,7 @@ function sbLeftRight(right){
         var el=items[_sbIdx];
         if(el){
             var fidx=el.dataset.fidx;
-            var ch=document.getElementById('fc-'+fidx);
+            var ch=el.parentNode?el.parentNode.querySelector('.tree-children[data-fidx="'+fidx+'"]'):null;
             if(ch){
                 var isOpen=ch.classList.contains('open');
                 if(right&&!isOpen){toggleFolderIdx(parseInt(fidx));return;}
