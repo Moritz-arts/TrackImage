@@ -1,6 +1,6 @@
 # TrackImage
 
-**Version 4.59** · [what changed](CHANGELOG.md) · [releases](../../releases)
+**Version 4.60** · [what changed](CHANGELOG.md) · [releases](../../releases)
 
 A local danbooru-style image library that never leaves your machine.
 

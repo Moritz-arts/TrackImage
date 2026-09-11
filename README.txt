@@ -1,4 +1,4 @@
-TrackImage v4.59
+TrackImage v4.60
 ================
 
 INSTALL

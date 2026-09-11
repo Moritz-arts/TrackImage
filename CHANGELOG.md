@@ -5,6 +5,12 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.60 — 2026-09-11
+
+- Two channels, and a history that writes itself
+- The front page says which version it is, and the history stays short
+- A CLAUDE.md, so the next session does not re-derive the rules
+
 ## v4.59
 - TrackImage follows the repository's main branch instead of its releases. A
   release was a snapshot somebody had to remember to attach a file to, and a
