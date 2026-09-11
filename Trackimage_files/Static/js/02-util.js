@@ -18,6 +18,23 @@ function toggleDetailLibrary(){
   if(ov)ov.classList.toggle('lib-collapsed',S.detailLibCollapsed);
 }
 
+/* The library beside an open picture is also the way back out of it. Choosing a
+   folder, a name, a tag or a rating there means "show me those", so the picture
+   steps aside and the gallery it just filtered comes forward -- filtering a
+   view that is covered by a photograph is not something anyone asked for.
+   Folding a branch of the tree open is not a choice of that kind and leaves the
+   picture where it is. */
+function detailExitToGallery(){
+  if(S.page!=='detail')return false;
+  var from=S._returnPage||'gallery';
+  var ov=document.getElementById('detail-overlay');if(ov)ov.remove();
+  S._returnPage=null;S.page='gallery';
+  updateNav();pushHistory('gallery');
+  if(from!=='gallery')render();   /* underneath lies the page it was opened from */
+  if(S.tagsModified){S.tagsModified=false;loadCharacters().then(renderTagList);}
+  return true;
+}
+
 function toggleDetailBare(){
   S.detailBare=!S.detailBare;
   

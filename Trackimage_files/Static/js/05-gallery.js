@@ -7,9 +7,9 @@ async function loadImagesReset(){var _ep=S.navEpoch||0;S.images=[];S.allLoaded=f
 
 async function loadMoreImages(){if(S.allLoaded||S.loadingMore)return;var _ep=S.navEpoch||0;S.loadingMore=true;var pg=Math.floor(S.images.length/60)+1;var p=new URLSearchParams();S.filter.characters.forEach(function(c){p.append('character',c);});S.filter.ratings.forEach(function(r){p.append('rating',r);});(S.filter.tags||[]).forEach(function(t){p.append('tag',t);});folderParams(p);if(S.filter.search)p.set('search',S.filter.search);p.set('sort',S.sort);p.set('order',S.order);p.set('page',pg);p.set('per_page',60);var d=await api('/api/images?'+p);if(_ep!==(S.navEpoch||0)){S.loadingMore=false;return;}if(!d.images.length)S.allLoaded=true;else{var ids=new Set(S.images.map(function(i){return i.id;}));d.images.forEach(function(img){if(!ids.has(img.id))S.images.push(img);});S.total=d.total;if(S.images.length>=d.total)S.allLoaded=true;}S.loadingMore=false;invalidateIndexMap();appendGalleryItems(d.images);}
 
-function filterByRating(n,e){closeDrawerAfterPick();n=parseInt(n)||0;if(!n){S.filter.ratings=[];}else if(e&&(e.ctrlKey||e.metaKey)){var i=S.filter.ratings.indexOf(n);if(i>=0)S.filter.ratings.splice(i,1);else S.filter.ratings.push(n);}else{S.filter.ratings=(S.filter.ratings.length===1&&S.filter.ratings[0]===n)?[]:[n];}_ratingFilterRefresh();}
+function filterByRating(n,e){closeDrawerAfterPick();detailExitToGallery();n=parseInt(n)||0;if(!n){S.filter.ratings=[];}else if(e&&(e.ctrlKey||e.metaKey)){var i=S.filter.ratings.indexOf(n);if(i>=0)S.filter.ratings.splice(i,1);else S.filter.ratings.push(n);}else{S.filter.ratings=(S.filter.ratings.length===1&&S.filter.ratings[0]===n)?[]:[n];}_ratingFilterRefresh();}
 
-function removeRatingChip(n){var i=S.filter.ratings.indexOf(n);if(i>=0)S.filter.ratings.splice(i,1);_ratingFilterRefresh();}
+function removeRatingChip(n){detailExitToGallery();var i=S.filter.ratings.indexOf(n);if(i>=0)S.filter.ratings.splice(i,1);_ratingFilterRefresh();}
 
 function setGridCols(n){n=Math.max(1,Math.min(15,parseInt(n)||8));S.cols=n;document.documentElement.style.setProperty('--gallery-cols',n);localStorage.setItem('ti_grid_cols',String(n));document.querySelectorAll('.grid-slider-val').forEach(function(v){v.textContent=n;});
 // v3.83: the duplicates page now has justified rows as well, so both views get
@@ -32,7 +32,7 @@ function clearSearch(){clearTimeout(searchTimeout);var inp=document.getElementBy
 
 function searchTerms(){return S.searchChips||[];}
 
-function removeSearchTerm(i){S.searchChips.splice(i,1);var x=document.getElementById('search-clear');if(x)x.classList.toggle('visible',S.searchChips.length>0||!!S.pendingSearch);_applySearch();}
+function removeSearchTerm(i){detailExitToGallery();S.searchChips.splice(i,1);var x=document.getElementById('search-clear');if(x)x.classList.toggle('visible',S.searchChips.length>0||!!S.pendingSearch);_applySearch();}
 
 var _clickTimer=null,_clickId=0,_imgIndexMap=null;
 
