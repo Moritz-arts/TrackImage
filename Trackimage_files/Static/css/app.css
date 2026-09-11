@@ -1,0 +1,598 @@
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:300;font-display:swap;src:url(/static/fonts/dm-sans-300.ttf) format('truetype');}
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/dm-sans-400.ttf) format('truetype');}
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:500;font-display:swap;src:url(/static/fonts/dm-sans-500.ttf) format('truetype');}
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:600;font-display:swap;src:url(/static/fonts/dm-sans-600.ttf) format('truetype');}
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:700;font-display:swap;src:url(/static/fonts/dm-sans-700.ttf) format('truetype');}
+@font-face{font-family:'Space Mono';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/space-mono-400.ttf) format('truetype');}
+@font-face{font-family:'Space Mono';font-style:normal;font-weight:700;font-display:swap;src:url(/static/fonts/space-mono-700.ttf) format('truetype');}
+
+:root{--bg-primary:#0a0a0c;--bg-secondary:#111116;--bg-card:#16161c;--bg-hover:#1e1e26;--border:#2a2a35;--border-light:#35354a;--text-primary:#e8e8f0;--text-secondary:#8888a0;--text-muted:#555568;--accent:#d4a017;--accent-light:#f0c040;--accent-dim:#d4a01720;--accent-glow:#d4a01740;--success:#00b894;--danger:#e17055;--warning:#e8a84f;--tag-bg:#d4a01718;--tag-border:#d4a01740;--radius:8px;--radius-lg:14px;--transition:0.2s cubic-bezier(0.4,0,0.2,1);--folder-col-w:200px;--tag-col-w:200px;--gallery-cols:8;}
+*{margin:0;padding:0;box-sizing:border-box;}
+/* v4.35: one number for "how tall is the screen right now", set from JS and
+   kept current while the browser's address bar slides in and out. A fixed
+   element sized to 100vh keeps the height it had when the bar was still there,
+   which is why opening a picture and nudging the page left the gallery showing
+   underneath it. Falls back to vh, then to dvh where that exists, so the layout
+   is correct before a single line of script has run. */
+:root{--app-h:100vh;--app-w:100vw;}
+@supports(height:100dvh){:root{--app-h:100dvh;--app-w:100dvw;}}
+/* Nothing may be wider than the screen, in any orientation. This used to sit in
+   the phone-only block, but a phone held sideways is about 914px across and met
+   neither the 820px nor the 900px breakpoint -- so it got the desktop rules
+   without this one, the top bar overflowed, and the whole interface could be
+   dragged back and forth with a finger. The white strip past the right edge was
+   the page showing through beside it; html is painted now too. */
+html{background:var(--bg-primary);}
+html,body{max-width:100%;overflow-x:hidden;overscroll-behavior:none;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:var(--app-h);overflow:hidden;font-size:clamp(14px,0.9vw,17px);}
+::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.logo{display:flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0;}.logo-icon{font-size:18px;color:var(--accent);}.logo-text{font-family:'Space Mono',monospace;font-weight:700;font-size:15px;color:var(--accent);}
+.nav-links{display:flex;gap:4px;flex-shrink:0;margin-left:auto;align-items:center;}
+/* v4.31: the drawer handle. Hidden on desktop, where both sidebar columns
+   are simply on screen; the media query above turns it on. */
+#drawer-btn{display:none;align-items:center;justify-content:center;width:38px;height:36px;flex:none;padding:0;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text-secondary);cursor:pointer;}
+#drawer-btn:active{background:var(--bg-hover);}
+.nav-link{padding:5px 14px;border-radius:var(--radius);border:1px solid transparent;background:transparent;color:var(--text-secondary);font-size:13px;font-weight:500;cursor:pointer;transition:all var(--transition);}
+.nav-link:hover{color:var(--text-primary);background:var(--bg-hover);}.nav-link.active{color:#15110a;background:var(--accent);border-color:var(--accent);font-weight:600;}
+.nav-link:disabled,.nav-link[disabled]{opacity:.3;cursor:not-allowed;pointer-events:none;}
+.btn{padding:8px 18px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:14px;font-weight:500;cursor:pointer;transition:all var(--transition);display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}
+.btn:hover{background:var(--bg-hover);}.btn:disabled{opacity:.5;cursor:not-allowed;}.btn-primary{background:var(--accent);border-color:var(--accent);color:#000;font-weight:600;}.btn-primary:hover{background:var(--accent-light);}.btn-sm{padding:6px 14px;font-size:13px;}
+.btn-danger{border-color:var(--danger);color:var(--danger);}.btn-danger:hover{background:rgba(225,112,85,.15);}
+.btn-warning{border-color:var(--warning);color:var(--warning);}.btn-warning:hover{background:rgba(232,168,79,.15);}
+.content{margin:0;padding:0;height:var(--app-h);overflow:hidden;max-width:100%;}
+.gallery-layout{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto 1fr;gap:0;height:var(--app-h);max-width:100%;min-width:0;}
+/* Wrapping is not a phone thing. At 914px -- a phone lying on its side -- the
+   bar had every desktop control and no room for them, so "Find Duplicates" was
+   printed on top of the scissors. A second row is the honest answer. */
+.topbar{grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;row-gap:6px;border-bottom:1px solid var(--border);background:var(--bg-primary);min-height:40px;padding:0 12px;max-width:100%;min-width:0;}
+.selection-info{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--accent-light);font-weight:600;margin-left:6px;}
+.selection-info .sel-count{background:var(--accent-dim);border:1px solid var(--accent-glow);padding:2px 10px;border-radius:12px;}
+.clipboard-info{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);font-weight:500;margin-left:6px;}
+.clipboard-info .cb-chip{background:var(--bg-card);border:1px solid var(--border);padding:2px 10px;border-radius:12px;display:inline-flex;align-items:center;gap:4px;}
+.clipboard-info .cb-chip.cut{border-color:var(--warning);color:var(--warning);}
+.sidebar{display:flex;flex-direction:row;gap:0;border-right:1px solid var(--border);overflow:hidden;}
+.sidebar-col{overflow-y:auto;overflow-x:hidden;min-width:0;padding:0;overscroll-behavior:contain;user-select:none;flex:1;}
+.sidebar-col-wrap{position:relative;display:flex;flex-direction:column;overflow:hidden;}
+.sidebar-col-wrap.folders-wrap{width:var(--folder-col-w);flex-shrink:0;}
+.sidebar-col-wrap.tags-wrap{width:var(--tag-col-w);flex-shrink:0;}
+.sidebar-col-wrap+.sidebar-col-wrap{border-left:1px solid var(--border);}
+.col-resizer{position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;z-index:10;user-select:none;}
+.col-resizer:hover,.col-resizer.dragging{background:var(--accent-glow);}
+.col-collapse-btn{flex:0 0 auto;cursor:pointer;color:var(--accent-light);font-size:11px;font-weight:700;line-height:1;padding:3px 6px;border-radius:4px;user-select:none;border:1px solid transparent;}
+.col-collapse-btn:hover{color:#fff;background:var(--accent);border-color:var(--accent);}
+.sidebar-col-wrap.collapsed{width:30px!important;min-width:30px;flex-shrink:0;}
+.sidebar-col-wrap.collapsed .sidebar-col,.sidebar-col-wrap.collapsed .col-resizer,.sidebar-col-wrap.collapsed .col-collapse-btn{display:none;}
+.col-collapsed-bar,.ds-collapsed-bar{display:none;}
+.sidebar-col-wrap.collapsed .col-collapsed-bar{display:flex;flex-direction:column;align-items:center;gap:12px;padding:12px 0;cursor:pointer;height:100%;color:var(--accent-light);}
+.col-collapsed-bar:hover,.ds-collapsed-bar:hover{color:#fff;background:var(--accent);}
+.col-collapsed-bar>span:first-child,.ds-collapsed-bar>span:first-child{font-size:13px;font-weight:700;}
+.col-collapsed-bar .cc-label,.ds-collapsed-bar .cc-label{writing-mode:vertical-rl;text-orientation:mixed;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;}
+.detail-sidebar.collapsed{width:32px!important;min-width:32px;}
+.detail-sidebar.collapsed .detail-panel,.detail-sidebar.collapsed .meta-panel{display:none;}
+.detail-sidebar.collapsed .ds-collapsed-bar{display:flex;flex-direction:column;align-items:center;gap:12px;padding:12px 0;cursor:pointer;height:100%;color:var(--accent-light);}
+.ds-collapse-btn{flex:0 0 auto;display:flex;align-items:center;cursor:pointer;color:var(--accent-light);font-size:14px;font-weight:700;line-height:1;padding:0 9px;border-radius:var(--radius);user-select:none;background:var(--bg-primary);border:1px solid var(--border);}
+.ds-collapse-btn:hover{color:#fff;background:var(--accent);border-color:var(--accent);}
+.sidebar-title{font-family:'Space Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-muted);padding:8px 12px 4px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.tag-list{display:flex;flex-direction:column;gap:0;}
+.search-chips{display:flex;flex-wrap:wrap;gap:5px;padding:6px 12px 8px;border-bottom:1px solid var(--border);margin-bottom:4px;}
+.search-chip{display:inline-flex;align-items:center;gap:5px;background:var(--accent);color:#000;font-size:12px;font-weight:600;padding:3px 6px 3px 9px;border-radius:12px;line-height:1;max-width:100%;}.search-chip.ch-text{background:var(--bg-hover);color:var(--text-primary);border:1px solid var(--border);}.search-chip.ch-text .chip-x{background:rgba(255,255,255,.12);}.search-chip.ch-mltag{background:#1f9184;color:#fff;}.search-chip.ch-mltag .chip-x{background:rgba(0,0,0,.25);}.search-chip.ch-folder{background:#2f6fbf;color:#fff;}.search-chip.ch-folder .chip-x{background:rgba(0,0,0,.25);}.seg-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:4px;vertical-align:middle;}
+.search-chip .chip-x{cursor:pointer;font-size:11px;width:14px;height:14px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(0,0,0,.18);}
+.search-chip .chip-x:hover{background:rgba(0,0,0,.4);color:#fff;}
+.tag-item{padding:4px 12px;border-radius:0;cursor:pointer;transition:all var(--transition);display:flex;align-items:center;justify-content:space-between;font-size:13px;gap:8px;white-space:nowrap;user-select:none;}
+.tag-item:hover{background:var(--bg-hover);}.tag-item.active{background:var(--accent-dim);color:var(--accent-light);}
+.tag-item .count{font-family:'Space Mono',monospace;font-size:11px;color:var(--text-muted);min-width:28px;text-align:right;}
+.tag-item.active .count{color:var(--accent-light);}
+.tag-item.kb-hl{outline:1px solid var(--accent);outline-offset:-1px;}
+.sidebar-toggle{padding:6px 8px 4px;gap:4px;}
+.sidebar-toggle .seg{flex:1;text-align:center;padding:3px 6px;border-radius:4px;cursor:pointer;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border:1px solid transparent;transition:all var(--transition);}
+.sidebar-toggle .seg:hover{background:var(--bg-hover);color:var(--text-secondary);}
+.sidebar-toggle .seg.active{background:var(--accent-dim);color:var(--accent-light);border-color:var(--accent-glow);}
+.tag-item .tcat{font-family:'Space Mono',monospace;font-size:9px;opacity:.55;margin-left:6px;text-transform:uppercase;}
+.detail-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px;}
+.detail-tags .ti-title{width:100%;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:2px;}
+.detail-tags .mltag{padding:3px 9px;background:var(--bg-hover);border:1px solid var(--border);border-radius:20px;font-size:12px;color:var(--text-secondary);cursor:pointer;transition:all var(--transition);}
+.detail-tags .mltag:hover{border-color:var(--accent);color:var(--accent-light);}
+.detail-tags .mltag.cat-character{color:var(--accent);}
+.detail-tags .mltag.cat-rating{opacity:.8;font-style:italic;}
+.detail-tags .mltag.mltag-match{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;opacity:1;font-style:normal;}
+.tree-toggle.kb-hl{outline:1px solid var(--accent);outline-offset:-1px;}
+.tag-letter{font-family:'Space Mono',monospace;font-size:10px;font-weight:700;color:var(--accent);padding:8px 12px 2px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:4px;user-select:none;}
+.tag-letter:hover{color:var(--accent-light);}
+.tag-letter .tl-arrow{display:inline-block;font-size:8px;transition:transform .15s;width:10px;}
+.tag-letter .tl-arrow.open{transform:rotate(90deg);}
+.tag-group{display:none;}.tag-group.open{display:block;}
+.tree-node{font-size:13px;color:var(--text-secondary);}
+.tree-toggle{display:flex;align-items:center;gap:4px;padding:4px 12px;border-radius:0;cursor:pointer;transition:all var(--transition);white-space:nowrap;user-select:none;}
+.tree-toggle:hover{background:var(--bg-hover);}
+.tree-toggle.active{background:var(--accent-dim);color:var(--accent-light);}
+.tree-toggle.multi-selected{background:var(--accent-dim);outline:1px solid var(--accent-glow);outline-offset:-1px;}
+.tree-toggle .arrow{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin:-3px 0 -3px -4px;font-size:11px;color:var(--text-muted);border-radius:5px;transition:transform .15s;}.tree-toggle .arrow:hover{color:var(--text-primary);background:var(--bg-hover);}
+.tree-toggle .arrow.open{transform:rotate(90deg);}
+.tree-toggle .tcnt{margin-left:auto;font-family:'Space Mono',monospace;font-size:11px;color:var(--text-muted);}
+.tree-toggle.active .tcnt{color:var(--accent-light);}
+.link-folder-btn{display:flex;align-items:center;gap:6px;padding:8px 12px;color:var(--text-muted);font-size:12px;cursor:pointer;transition:all var(--transition);border-top:1px solid var(--border);margin-top:4px;}
+.link-folder-btn:hover{color:var(--accent-light);background:var(--bg-hover);}
+.ctx-menu{position:fixed;z-index:500;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:4px 0;min-width:160px;box-shadow:0 8px 30px rgba(0,0,0,.5);}
+.ctx-menu-item{padding:7px 14px;font-size:13px;color:var(--text-primary);cursor:pointer;transition:all var(--transition);display:flex;align-items:center;gap:8px;}
+.ctx-menu-item:hover{background:var(--bg-hover);}.ctx-menu-item.danger{color:var(--danger);}.ctx-menu-item.danger:hover{background:rgba(225,112,85,.1);}
+.ctx-menu-sep{height:1px;background:var(--border);margin:4px 0;}
+/* v4.06: settings shell -- icon rail on the left, one pane on the right, console pinned below */
+.set-root{display:flex;flex-direction:column;height:calc(var(--app-h) - 41px);}
+.set-shell{display:flex;flex:1;min-height:0;}
+.set-nav{width:196px;flex:none;border-right:1px solid var(--border);padding:12px 8px;overflow-y:auto;background:var(--bg-secondary);}
+.set-nav-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 11px;margin-bottom:3px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--text-secondary);font-size:13px;font-weight:500;cursor:pointer;text-align:left;transition:all var(--transition);}
+.set-nav-item:hover{background:var(--bg-hover);color:var(--text-primary);}
+.set-nav-item.active{background:rgba(212,160,23,.10);border-color:var(--accent);color:var(--accent-light);}
+.set-nav-item svg{flex:none;opacity:.9;}
+.set-nav-title{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);padding:4px 11px 8px;}
+.set-body{flex:1;min-width:0;overflow-y:auto;padding:16px clamp(16px,2.5vw,34px) 28px;}
+.net-addr{margin-top:14px;padding:14px;border:1px solid var(--accent);border-radius:10px;
+ background:rgba(212,160,23,.06);text-align:center;}
+.net-addr-label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;}
+.net-addr-url{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;}
+.net-addr-url code{font-family:'Space Mono',monospace;font-size:18px;color:var(--accent-light);
+ user-select:all;word-break:break-all;}
+.net-addr-meta{margin-top:6px;font-size:12px;color:var(--text-muted);}
+.net-qr{margin-top:14px;}
+.net-qr img{width:min(190px,55vw);height:auto;background:#fff;padding:8px;border-radius:8px;display:block;margin:0 auto;}
+#set-workbar{display:none;align-items:center;gap:9px;margin:0 0 14px;padding:8px 12px;border:1px solid var(--accent);border-radius:8px;background:rgba(212,160,23,.08);font-size:13px;color:var(--accent-light);}
+#set-workbar.on{display:flex;}
+#set-workbar .work-spin{width:13px;height:13px;flex:none;}
+.set-pane{display:none;}
+.set-pane.active{display:block;}
+.set-pane .settings-card{background:transparent;border:0;border-radius:0;padding:0;}
+.set-console{flex:none;border-top:1px solid var(--border);background:var(--bg-secondary);}
+.set-console-head{display:flex;align-items:center;gap:10px;padding:7px 14px;cursor:pointer;user-select:none;}
+.set-console-head h4{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary);margin:0;font-weight:600;}
+.set-console-head .arr{transition:transform .2s;font-size:11px;color:var(--text-muted);}
+.set-console.closed .arr{transform:rotate(-90deg);}
+.set-console.closed .set-console-body{display:none;}
+.set-console-body{padding:0 14px 12px;}
+/* v4.15: no fixed height here any more -- it beat the resizable one on
+   specificity, which is why the console could not be dragged. */
+.set-console-body .con-box{height:150px;}
+/* v4.03: console panel in Settings */
+.proc-adv.closed .arr{transform:rotate(-90deg);}
+.proc-adv.closed .proc-adv-body{display:none;}
+/* v4.15: the same spinner the main page uses, so "working" looks the same
+   everywhere instead of a dot here and a wheel there. */
+.set-nav-item .work-spin{margin-left:auto;margin-right:0;flex:none;width:11px;height:11px;}
+.con-grip{height:7px;cursor:ns-resize;background:transparent;border-top:1px solid transparent;}
+.con-grip:hover{background:var(--accent);opacity:.5;}
+.con-box{height:240px;min-height:90px;overflow-y:auto;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);padding:8px 10px;font-family:'Space Mono',monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary);}
+.con-box .l-warn{color:var(--accent-light);}
+.con-box .l-err{color:var(--danger);}
+.con-box .l-ok{color:var(--success);}
+.con-box .l-http{color:var(--text-muted);}
+.con-box.nohttp .l-http{display:none;}
+.con-empty{color:var(--text-muted);}
+/* v3.91: menu icons + quick access toolbar */
+.ctx-menu-item .mi{flex:none;opacity:.8;}
+.ctx-menu-item.gold{color:var(--accent);}
+.ctx-menu-item.gold:hover{background:rgba(240,180,41,.10);}
+.qa-bar{display:flex;align-items:center;gap:2px;padding:0 8px 0 4px;margin-right:4px;border-right:1px solid var(--border);}
+.qa-btn{display:flex;align-items:center;justify-content:center;width:28px;height:26px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text-secondary);cursor:pointer;transition:all var(--transition);}
+.qa-btn:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--border);}
+.qa-btn.gold{color:var(--accent);}
+.qa-btn.danger{color:var(--danger);}
+.qa-btn.disabled{opacity:.3;cursor:default;}
+.qa-btn.disabled:hover{background:transparent;border-color:transparent;}
+.qa-sep{width:1px;height:16px;background:var(--border);margin:0 3px;flex:none;}
+/* v4.33: the quick tools used to live INSIDE .nav-links, which meant they could
+   never be placed independently of the duplicate and settings buttons. On a
+   phone that pushed the last two tools off the edge of the screen. They are
+   their own box now; on the desktop it sits exactly where it always did. */
+.qa-wrap{display:flex;align-items:center;min-width:0;margin-left:auto;overflow-x:auto;scrollbar-width:none;}
+.qa-wrap::-webkit-scrollbar{display:none;}
+.topbar .qa-wrap+.nav-links{margin-left:0;}
+.tb-check{display:flex;align-items:center;gap:5px;padding:0 6px;font-size:12px;color:var(--text-secondary);cursor:pointer;white-space:nowrap;user-select:none;}
+.tb-check input{accent-color:var(--accent);cursor:pointer;margin:0;}
+.tb-check.on{color:var(--accent-light);}
+.tree-children{margin-left:18px;display:none;}.tree-children.open{display:block;}
+.main{display:flex;flex-direction:column;gap:12px;min-width:0;max-width:100%;overflow-x:hidden;padding:10px clamp(12px,1.5vw,24px);overflow-y:auto;overscroll-behavior:contain;}
+.search-box{flex:1 1 160px;min-width:0;max-width:360px;position:relative;}
+.search-box input{width:100%;padding:6px 30px 6px 32px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-size:13px;outline:none;}
+.search-box input:focus{border-color:var(--accent);}.search-box input::placeholder{color:var(--text-muted);}
+.search-box .search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);pointer-events:none;}
+.search-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;border:none;background:var(--bg-primary);color:var(--text-muted);font-size:12px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;padding:0;}
+.search-clear:hover{color:var(--text-primary);background:var(--border);}
+.search-clear.visible{display:flex;}
+.sort-controls{display:flex;gap:3px;}
+.sort-btn{padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);font-size:12px;cursor:pointer;transition:all var(--transition);}
+.sort-btn:hover{background:var(--bg-hover);color:var(--text-primary);}.sort-btn.active{background:var(--accent-dim);color:var(--accent-light);border-color:var(--accent-glow);}
+.grid-slider{display:inline-flex;align-items:center;gap:7px;padding:0 4px 0 10px;color:var(--text-secondary);}
+.grid-slider svg{flex-shrink:0;opacity:.7;}
+/* v4.35: the slider lives in a strip that scrolls sideways, so pulling the
+   handle across also pulled the strip along under it. touch-action:none hands
+   the gesture to the control and to nothing else. */
+.grid-slider input[type=range],.dup-slider{touch-action:none;}
+.grid-slider input[type=range]{width:96px;height:4px;-webkit-appearance:none;appearance:none;background:var(--border);border-radius:3px;outline:none;cursor:pointer;}
+.grid-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer;border:none;}
+.grid-slider input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer;border:none;}
+.grid-slider-val{font-size:12px;font-weight:600;color:var(--accent-light);min-width:18px;text-align:center;}
+.gallery{--gallery-gap:clamp(6px,.6vw,12px);--gallery-min-tile:140px;display:grid;gap:var(--gallery-gap);grid-template-columns:repeat(auto-fill,minmax(max(var(--gallery-min-tile),calc((100% - (var(--gallery-cols) - 1)*var(--gallery-gap))/var(--gallery-cols))),1fr));}
+.gallery-item{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:all var(--transition);position:relative;}
+/* v4.40: the drag preview TrackImage draws itself. WebView2 cannot be an OLE
+   drag source, so the app window runs its own drag: this is what follows the
+   cursor while the picture is inside the window. Once the cursor reaches another
+   program Windows takes over and draws its own. */
+.ti-ghost{position:fixed;z-index:9000;pointer-events:none;opacity:.75;transform:translate(-50%,-50%);
+  border:1px solid var(--accent);border-radius:8px;background:var(--bg-card);
+  box-shadow:0 10px 28px rgba(0,0,0,.55);padding:3px;line-height:0;}
+.ti-ghost img{display:block;max-width:170px;max-height:170px;border-radius:6px;object-fit:contain;}
+.ti-ghost .ti-ghost-n{position:absolute;right:-9px;top:-9px;min-width:22px;height:22px;padding:0 6px;
+  border-radius:999px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;line-height:22px;
+  text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.5);}
+.gallery-item:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 30px rgba(0,0,0,.3);}
+/* v4.19: 3px and the solid accent rather than the glow -- 2px of a translucent
+   colour disappeared against a pale picture. */
+.gallery-item.selected{border-color:var(--accent-light);box-shadow:0 0 0 3px var(--accent),0 8px 30px rgba(0,0,0,.3);}
+.gallery-item.selected::after{content:'✓';position:absolute;top:6px;right:6px;width:22px;height:22px;background:var(--accent);color:#000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;z-index:2;}
+.gallery-item .img-wrap{aspect-ratio:1;overflow:hidden;position:relative;}.gallery-item img{width:100%;height:100%;object-fit:cover;}
+.gallery.justified{display:flex;flex-wrap:wrap;gap:var(--gallery-gap);align-items:flex-start;}
+.gallery{max-width:100%;}
+/* v4.39: dropping files onto the gallery puts them in the library. The overlay
+   names the folder they will land in before anything is written -- the file
+   goes to the place that is open on screen, so where it shows up in TrackImage
+   and where it sits on disk are never two different answers. */
+#import-veil{position:fixed;inset:0;z-index:180;display:none;align-items:center;
+  justify-content:center;background:rgba(10,11,13,.82);backdrop-filter:blur(3px);}
+#import-veil.on{display:flex;}
+#import-veil .iv-card{border:2px dashed var(--accent);border-radius:16px;padding:34px 44px;
+  text-align:center;background:var(--bg-secondary);max-width:min(560px,86vw);}
+#import-veil .iv-title{font-size:19px;font-weight:600;margin-bottom:8px;}
+#import-veil .iv-where{font-family:'Space Mono',monospace;color:var(--accent);font-size:14px;
+  word-break:break-all;}
+#import-veil .iv-note{font-size:12px;color:var(--text-secondary);margin-top:12px;line-height:1.6;}
+.iv-pick{display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow-y:auto;margin-top:14px;
+  text-align:left;}
+.iv-pick button{background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);
+  border-radius:8px;padding:9px 12px;font-size:13px;cursor:pointer;text-align:left;
+  font-family:'Space Mono',monospace;}
+.iv-pick button:hover{border-color:var(--accent);color:var(--accent);}                       /* v4.33: the grid never widens its own container */
+.gallery.justified .gallery-item{max-width:100%;}
+.gallery.no-info .card-info{display:none;}
+.gallery.justified.laid .gallery-item{transition:width .18s ease;}
+.gallery.justified.laid .img-wrap{transition:height .18s ease;}
+.gallery.justified .gallery-item{flex:0 0 auto;}
+.gallery.justified .img-wrap{aspect-ratio:auto;}
+.gallery.justified .gallery-item img{width:100%;height:100%;object-fit:cover;display:block;}
+.gallery-item .card-date{font-size:11px;color:var(--text-muted);margin-top:2px;}
+.gallery-item .card-info{padding:8px 10px;border-top:1px solid var(--border);}
+.gallery-item .card-filename-row{display:flex;align-items:center;gap:6px;}
+.gallery-item .card-filename{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.gallery-item .card-folder{font-size:11px;color:var(--text-muted);margin-top:2px;line-height:1.35;height:2.7em;overflow:hidden;word-break:keep-all;overflow-wrap:normal;}
+.gallery-item .video-badge{position:absolute;top:6px;left:6px;background:rgba(0,0,0,.7);color:var(--accent);font-size:11px;padding:2px 6px;border-radius:4px;font-weight:600;}
+.gallery-item .rating-badge{color:var(--accent-light);font-size:12px;font-weight:700;margin-left:auto;flex-shrink:0;}
+.load-more{display:flex;align-items:center;justify-content:center;padding:30px 0;}
+.watcher-dot{width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0;transition:background .3s;cursor:default;}
+.autosync-sw{display:flex;align-items:center;gap:6px;padding:2px 9px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:.3px;cursor:pointer;user-select:none;border:1px solid var(--border);flex-shrink:0;transition:all .25s;}
+.autosync-sw .as-dot{width:7px;height:7px;border-radius:50%;}
+.autosync-sw.on{color:var(--success);border-color:var(--success);}
+.autosync-sw.on .as-dot{background:var(--success);box-shadow:0 0 6px var(--success);}
+.autosync-sw.off{color:var(--danger);border-color:var(--danger);}
+.autosync-sw.off .as-dot{background:var(--danger);box-shadow:0 0 6px var(--danger);}
+.watcher-dot.active{background:var(--success);box-shadow:0 0 6px var(--success);}
+.watcher-dot.off{background:var(--danger);box-shadow:0 0 6px var(--danger);}
+.work-spin{display:none;width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:tispin .8s linear infinite;align-self:center;margin-right:6px;}
+.work-spin.on{display:inline-block;}
+/* detail overlay */
+.detail-overlay{position:fixed;inset:0;width:var(--app-w);height:var(--app-h);z-index:200;background:#000;display:flex;}
+/* v4.35: the picture owns the gestures over it -- zoomed in so a drag moves the
+   image, and at 1x so a sideways swipe reaches the next picture instead of
+   nudging the page and folding the address bar away mid-swipe. Not inside a
+   width query: a phone lying on its side is 914px across and would have missed
+   it. The panel beside the picture still scrolls normally. */
+/* v4.53: the library beside the picture. It is the gallery's own sidebar, so it
+   inherits every rule that one has; only the frame around it is new. */
+.detail-library{display:flex;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg);max-height:var(--app-h);overflow:hidden;}
+.detail-library .sidebar{display:flex;flex-direction:row;height:var(--app-h);border-right:none;}
+.detail-library .dl-collapsed-bar{display:none;}
+.detail-overlay.lib-collapsed .detail-library .sidebar{display:none;}
+.detail-overlay.lib-collapsed .detail-library .dl-collapsed-bar{display:flex;flex-direction:column;align-items:center;gap:6px;width:30px;padding:8px 0;cursor:pointer;color:var(--text-secondary);font-size:11px;}
+.detail-overlay.lib-collapsed .detail-library .cc-label{writing-mode:vertical-rl;letter-spacing:1px;text-transform:uppercase;}
+.detail-overlay.bare .detail-library{display:none;}
+.detail-overlay.bare .detail-sidebar{display:none;}
+.detail-overlay.bare .ds-reopen{display:none;}
+.detail-img-area{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:default;position:relative;background:#000;touch-action:none;}
+.detail-img-area.zoomed{cursor:grab;}.detail-img-area.panning{cursor:grabbing;}
+#zoom-pct{position:absolute;right:12px;bottom:12px;z-index:5;display:none;padding:3px 9px;border-radius:12px;background:rgba(0,0,0,.65);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:11px;color:var(--text-secondary);pointer-events:none;}
+#zoom-pct.one-to-one{color:var(--accent-light);border-color:var(--accent);}
+/* v4.30: the image is laid out at its NATURAL pixel size and scaled with a
+   transform from there. It used to be width:100%/height:100% with object-fit,
+   which meant the browser rasterised a 1792px image down to whatever the window
+   was -- around 800px -- and every zoom then magnified THAT, not the original.
+   Zooming in could never recover detail that had already been thrown away.
+   Laying it out at natural size means 100% is a true 1:1 pixel match and
+   anything below it is a clean downscale of the full-resolution file. */
+.detail-img-area img{max-width:none;max-height:none;user-select:none;transform-origin:center center;cursor:zoom-in;display:block;position:absolute;left:50%;top:50%;image-rendering:auto;}
+/* v4.40: -webkit-user-drag used to sit on the picture unconditionally, which
+   killed dragstart in the full view entirely -- not even the clipboard fallback
+   ran, so a drag from the full view did nothing at all. It is only needed while
+   zoomed, where the mouse belongs to panning. */
+.detail-img-area.zoomed img{cursor:grab;-webkit-user-drag:none;}.detail-img-area.panning img{cursor:grabbing;}
+.detail-sidebar{position:relative;width:clamp(280px,20vw,380px);background:var(--bg-secondary);border-left:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column;flex-shrink:0;}
+.detail-panel{padding:16px;display:flex;flex-direction:column;gap:10px;overflow:visible;}
+/* v4.30: the sidebar column turns selection off so drag-selecting the tag list
+   does not paint text blue. The metadata is there to be read and copied, so it
+   opts back in -- dimensions, dates and paths are selectable again. */
+.detail-panel,.meta-panel,.detail-sidebar .meta-row,.detail-sidebar .meta-val,.detail-sidebar .detail-section-body{user-select:text;-webkit-user-select:text;cursor:text;}
+.detail-sidebar .detail-section-title,.detail-sidebar .tag-item{user-select:none;cursor:pointer;}
+.detail-filename{width:100%;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-size:15px;font-weight:600;outline:none;}.detail-filename:focus{border-color:var(--accent);}
+.detail-folder{font-size:13px;color:var(--text-muted);}
+.detail-chars{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+.detail-chars .tag-remove{padding:4px 12px;background:var(--tag-bg);border:1px solid var(--tag-border);border-radius:20px;font-size:13px;color:var(--accent-light);cursor:pointer;transition:all var(--transition);}
+.detail-chars .tag-remove:hover{border-color:var(--accent);}
+.add-tag-btn{width:26px;height:26px;border-radius:50%;background:var(--bg-primary);border:1px solid var(--border);color:var(--text-muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all var(--transition);flex-shrink:0;line-height:1;}
+.add-tag-btn:hover{border-color:var(--accent);color:var(--accent);}
+.add-tag-inline{display:none;flex:1;min-width:80px;}.add-tag-inline.open{display:flex;}
+.add-tag-inline input{flex:1;padding:4px 8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-size:12px;outline:none;}.add-tag-inline input:focus{border-color:var(--accent);}
+.char-toggle{padding:4px 7px;margin-left:4px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-primary);color:var(--text-muted);font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;line-height:1;}.char-toggle.active{border-color:var(--accent);color:var(--accent);}
+.detail-section-title{font-size:12px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+.detail-nav{display:flex;gap:6px;}.detail-nav .btn{flex:1;justify-content:center;}
+.meta-panel{padding:16px;border-top:1px solid var(--border);}
+.tags-panel{border-top:1px solid var(--border);padding-top:12px;margin-top:12px;margin-left:-16px;margin-right:-16px;padding-left:16px;padding-right:16px;}
+.tag-fixed{border-bottom:1px solid var(--border);margin-bottom:4px;padding-bottom:2px;}
+.mltag-x{margin-left:5px;opacity:.6;cursor:pointer;display:none;}.mltag:hover .mltag-x,.tag-remove:hover .mltag-x{display:inline;}.mltag-x:hover{opacity:1;color:var(--danger);}
+.meta-row{display:flex;gap:8px;margin-bottom:8px;font-size:13px;}
+.meta-label{color:var(--text-muted);min-width:100px;flex-shrink:0;font-weight:600;text-transform:uppercase;letter-spacing:.3px;font-size:11px;padding-top:2px;}
+.meta-value{color:var(--text-secondary);word-break:break-all;line-height:1.5;}
+.meta-value.prompt{white-space:pre-wrap;font-size:12px;background:var(--bg-primary);padding:8px;border-radius:var(--radius);border:1px solid var(--border);}
+.meta-copy-btn{margin-top:4px;font-size:10px;padding:3px 8px;background:var(--bg-secondary);border:1px solid var(--border);color:var(--text-muted);border-radius:var(--radius);cursor:pointer;text-transform:uppercase;letter-spacing:.3px;}
+.meta-copy-btn:hover{color:var(--text-primary);border-color:var(--accent);}
+.meta-copy-btn.copied{color:var(--accent-light);border-color:var(--accent);}
+.meta-empty{color:var(--text-muted);font-size:13px;font-style:italic;}
+.page-title{font-family:'Space Mono',monospace;font-size:clamp(20px,2vw,26px);font-weight:700;margin-bottom:20px;padding:0 clamp(16px,2vw,32px);padding-top:24px;}
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:0 clamp(16px,2vw,32px);}
+.settings-card{background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;}
+.settings-card h3{font-size:16px;margin-bottom:8px;}
+/* v4.08: the cards used to fold away behind their heading, collapsed by default.
+   The rail picks the topic now, so a chosen page is simply there. */.settings-card p{font-size:14px;color:var(--text-secondary);margin-bottom:16px;line-height:1.5;}
+.proc-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;font-size:14px;}
+.proc-row label{font-weight:500;color:var(--text-primary);}
+.switch{position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;}
+.switch input{opacity:0;width:0;height:0;}
+.switch .slider{position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:22px;transition:.2s;}
+.switch .slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:var(--text-secondary);border-radius:50%;transition:.2s;}
+.switch input:checked+.slider{background:var(--accent-dim);}
+.switch input:checked+.slider:before{transform:translateX(18px);background:var(--accent);}
+.proc-bar{height:7px;background:var(--bg-primary);border-radius:4px;overflow:hidden;margin:6px 0 8px;}
+.proc-bar-fill{height:100%;width:0%;background:var(--accent);border-radius:4px;transition:width .3s;}
+.proc-bar-fill.idle{background:var(--success);}.proc-bar-fill.off{background:var(--bg-primary);}  /* v3.74: idle bar keeps its full width but blends into the track, so it reads the same as the empty bar above it instead of a light grey slab */
+.proc-stat{font-family:'Space Mono',monospace;font-size:12px;color:var(--text-muted);min-height:16px;}
+.proc-stat b{color:var(--accent-light);}
+.proc-phase{margin-top:14px;}
+.proc-phase:first-child{margin-top:0;}
+.proc-phase-label{font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:5px;display:flex;align-items:center;gap:6px;}
+.proc-how{margin:-2px 0 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);overflow:hidden;}
+/* v4.07: these were collapsible <details>. The rail on the left does the
+   navigating now, so the sections are simply always open. */
+.proc-how .sec-title{padding:8px 12px;font-size:13px;font-weight:600;color:var(--accent-light);border-bottom:1px solid var(--border);}
+.proc-how-body{padding:0 12px 10px;}
+.proc-how-body p{font-size:12.5px;color:var(--text-secondary);margin:8px 0 0;line-height:1.5;}
+.proc-how-body b{color:var(--text-primary);}
+.proc-hint{font-size:11.5px;color:var(--text-muted);margin:-4px 0 14px;line-height:1.45;}
+.ignore-word-tag{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:20px;font-size:13px;color:var(--text-secondary);margin:2px;}
+.ignore-word-tag .remove{cursor:pointer;color:var(--danger);opacity:.6;font-size:14px;}.ignore-word-tag .remove:hover{opacity:1;}
+.setup-screen{display:flex;align-items:center;justify-content:center;min-height:60vh;}
+.setup-card{background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:48px;max-width:520px;width:100%;text-align:center;}
+.setup-card h2{font-family:'Space Mono',monospace;font-size:22px;margin-bottom:8px;}.setup-card p{color:var(--text-secondary);font-size:14px;margin-bottom:24px;line-height:1.6;}
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 20px;color:var(--text-muted);font-size:15px;gap:12px;}.empty-state .icon{font-size:48px;opacity:.3;}
+.spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent-light);border-radius:50%;animation:spin .6s linear infinite;display:inline-block;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-size:14px;z-index:2000;transform:translateY(100px);opacity:0;transition:all .3s ease;}
+.toast.show{transform:translateY(0);opacity:1;}.toast.success{border-color:var(--success);}
+.scan-progress{position:fixed;bottom:0;left:0;right:0;z-index:1000;background:var(--bg-card);border-top:1px solid var(--border);padding:0;display:flex;flex-direction:column-reverse;}
+.sp-row{padding:5px 16px;display:flex;align-items:center;gap:12px;font-size:12px;}
+.sp-row+.sp-row{border-bottom:1px solid var(--border);}
+.sp-row .sp-bar{flex:1;height:5px;background:var(--bg-primary);border-radius:3px;overflow:hidden;}
+.sp-row .sp-fill{height:100%;background:var(--accent);border-radius:3px;transition:width .3s;}
+.sp-row .sp-text{color:var(--text-secondary);white-space:nowrap;min-width:100px;}
+.sp-row.done .sp-fill{background:var(--success);}.sp-row.done .sp-text{color:var(--success);}
+.footer{text-align:center;padding:24px clamp(16px,2vw,32px);color:var(--text-muted);font-size:13px;border-top:1px solid var(--border);margin-top:40px;}
+@media(max-width:900px){.gallery-layout{grid-template-columns:1fr;}.topbar{flex-wrap:wrap;}.settings-grid{grid-template-columns:1fr;}.sidebar{flex-direction:column;border-right:none;border-bottom:1px solid var(--border);max-height:40vh;}.sidebar-col-wrap+.sidebar-col-wrap{border-left:none;border-top:1px solid var(--border);}.detail-sidebar{width:100%;max-width:none;border-left:none;border-top:1px solid var(--border);}.detail-overlay{flex-direction:column;}}
+
+/* ══ v4.31: phones and small tablets ══════════════════════════════════
+   TrackImage was built for a desktop window: two fixed sidebar columns, a
+   topbar with a dozen controls in a row, a settings page with a 196px nav
+   rail. On a 400px screen that produced a squeezed, half-cut layout with
+   controls pushed out of sight. Below 820px the shell becomes single-column,
+   the sidebar becomes a drawer you open when you want it, and every control
+   gets a finger-sized target. Nothing is removed -- it is reachable, which is
+   the part that was actually broken. */
+@media(max-width:820px){
+  html{-webkit-text-size-adjust:100%;}
+  /* v4.34: a hard ceiling on the document. One element wider than the screen
+     stretches the grid track it sits in, and then every box inside it -- the
+     top bar, the gallery -- is laid out to a width the display does not have,
+     and the right edge is simply gone. */
+  html,body{max-width:100%;overflow-x:hidden;}
+  .content,.gallery-layout,.topbar,.main,.gallery{max-width:100%;min-width:0;}
+  .content,.gallery-layout{height:100dvh;}          /* dvh: browser chrome aware */
+  .gallery-layout{grid-template-columns:1fr;grid-template-rows:auto 1fr;}
+
+  /* ── topbar: two rows, search on its own line ── */
+  .topbar{flex-wrap:wrap;row-gap:6px;padding:6px 8px;min-height:0;
+          position:sticky;top:0;z-index:60;}
+  .topbar .logo-text{display:none;}
+  .logo-icon{font-size:20px;}
+  .search-box{order:20;flex:1 1 100%;max-width:none;min-width:0;}
+  .search-box input{height:40px;font-size:16px;}     /* 16px stops iOS zooming in */
+  /* Sorting, tile size, info and the subfolder switch are more than a phone
+     row holds. The strip scrolls sideways instead of running off the edge --
+     min-width:0 is what actually allows it to, without it the strip claims the
+     width of its contents and takes the whole bar with it. */
+  .sort-controls{order:21;flex:1 1 100%;min-width:0;max-width:100%;
+                 overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap;
+                 -webkit-overflow-scrolling:touch;scrollbar-width:none;
+                 padding-bottom:2px;}
+  .sort-controls::-webkit-scrollbar{display:none;}
+  .sort-btn{min-height:40px;padding:0 14px;flex:none;}
+  /* v4.33: a fixed running order, top to bottom.
+       row 1  burger · logo · sync dot          | Find Duplicates · Settings
+       row 2  every quick tool, in the desktop order
+       row 3  search
+       row 4  sort / grid size / info / subfolders
+     Until now the quick tools queued up behind the duplicate and settings
+     buttons, so the last two -- Search image and Delete -- sat past the right
+     edge with nothing to suggest they were there. Moving those two buttons up
+     to row 1 leaves the whole width for the tools. */
+  .nav-links{order:2;margin-left:auto;gap:6px;}
+  .topbar .qa-wrap+.nav-links{margin-left:auto;}   /* beats the desktop rule above */
+  .nav-link{min-height:40px;min-width:40px;padding:0 12px;}
+  /* The button kept its icon and lost its label entirely, which left two
+     unlabelled circles side by side. There is room for one word. */
+  .nav-link[data-page="duplicates"]{font-size:12px;padding:0 11px;}
+  .nav-link[data-page="duplicates"] svg{width:15px;height:15px;margin-right:5px;}
+  .nav-long{display:none;}
+  .qa-wrap{order:12;flex:1 1 100%;margin-left:0;min-width:0;max-width:100%;
+           overflow-x:auto;scrollbar-width:none;}
+  .qa-wrap::-webkit-scrollbar{display:none;}
+  .qa-bar{flex:1;border-right:0;padding:0;margin:0;gap:0;}
+  /* Eleven tools and three separators have to share a phone-width row. They
+     divide it evenly and stop shrinking at 26px; a narrower screen -- or a
+     larger UI scale -- gets a row that scrolls sideways rather than one that
+     hides its last icons. */
+  .qa-btn{flex:1 1 0;min-width:26px;max-width:44px;height:40px;}
+  .qa-sep{flex:0 0 7px;margin:0;}
+  .main{overflow-x:hidden;}
+
+  /* ── sidebar as a drawer ── */
+  .sidebar{position:fixed;inset:0 auto 0 0;z-index:120;width:min(86vw,340px);
+           max-height:none;flex-direction:column;border-right:1px solid var(--border);
+           background:var(--bg-secondary);transform:translateX(-100%);
+           transition:transform .22s ease-out;box-shadow:0 0 40px rgba(0,0,0,.5);}
+  .sidebar.open{transform:translateX(0);}
+  .sidebar-col-wrap,.sidebar-col-wrap.folders-wrap,.sidebar-col-wrap.tags-wrap{
+           width:100%!important;flex:1 1 0;min-height:0;}
+  .sidebar-col-wrap+.sidebar-col-wrap{border-left:0;border-top:1px solid var(--border);}
+  .col-resizer{display:none;}
+  .tag-item,.tree-toggle{padding-top:9px;padding-bottom:9px;}
+  #drawer-scrim{position:fixed;inset:0;z-index:110;background:rgba(0,0,0,.55);
+           opacity:0;pointer-events:none;transition:opacity .22s;}
+  #drawer-scrim.on{opacity:1;pointer-events:auto;}
+  #drawer-btn{display:flex;}
+
+  /* ── gallery ── */
+  .main{padding:8px;gap:8px;}
+  .gallery{--gallery-min-tile:72px;--gallery-gap:6px;}
+  .footer{padding-bottom:24px;}
+
+  /* ── detail view: image on top, panel slides up ── */
+  .detail-overlay{flex-direction:column;}
+  .detail-img-area{flex:1 1 auto;min-height:0;}
+  .detail-sidebar{width:100%!important;max-width:none;border-left:0;
+           border-top:1px solid var(--border);max-height:45dvh;flex:none;}
+  /* v4.32: collapsed used to leave a 44px strip, so "hide everything" still cost
+     a slice of a screen that has none to spare. Collapsed now means gone, and
+     the image gets the whole display; a floating button brings the panel back. */
+  .detail-sidebar.collapsed{display:none;}
+  .detail-overlay .ds-reopen{display:none;}
+  .detail-overlay.panel-hidden .ds-reopen{display:flex;position:absolute;right:12px;
+           bottom:12px;z-index:8;width:44px;height:44px;align-items:center;
+           justify-content:center;border-radius:50%;border:1px solid var(--border);
+           background:rgba(0,0,0,.62);color:var(--accent-light);font-size:15px;
+           cursor:pointer;backdrop-filter:blur(4px);}
+  /* Panel below the image: the button that brings it back belongs at the
+     bottom edge it comes from, not off in a corner. */
+  .detail-overlay[data-edge="bottom"].panel-hidden .ds-reopen{left:50%;right:auto;
+           transform:translateX(-50%);bottom:14px;}
+  .detail-overlay.panel-hidden .detail-img-area{flex:1 1 100%;}
+  /* Nothing else may claim height once the panel is away. */
+  .detail-overlay.panel-hidden .detail-sidebar{display:none;}
+  .detail-nav-btn{width:44px;height:44px;}
+
+
+  /* ── settings: nav rail becomes a scrolling strip ── */
+  .set-shell{flex-direction:column;}
+  .set-nav{width:100%;border-right:0;border-bottom:1px solid var(--border);
+           display:flex;gap:6px;overflow-x:auto;padding:8px;scrollbar-width:none;}
+  .set-nav::-webkit-scrollbar{display:none;}
+  .set-nav-title{display:none;}
+  .set-nav-item{width:auto;flex:none;white-space:nowrap;margin:0;min-height:40px;}
+  .set-body{padding:12px;}
+  .settings-grid{grid-template-columns:1fr;padding:0;}
+  .proc-row{flex-wrap:wrap;gap:6px;}
+  input[type=range]{height:28px;}
+  .btn,.btn-sm{min-height:36px;}
+  .move-modal{width:min(94vw,360px);}
+  .ctx-menu{min-width:200px;}
+  .ctx-menu-item{padding:11px 14px;}
+}
+/* Very narrow phones: give the grid room to breathe rather than shrink tiles. */
+@media(max-width:420px){
+  .gallery{--gallery-min-tile:60px;}
+  .sort-btn{padding:0 9px;font-size:11px;}
+}
+.move-modal-bg{position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;}
+.move-modal{background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);width:360px;max-height:70vh;display:flex;flex-direction:column;overflow:hidden;}
+.move-modal h3{padding:16px;font-size:15px;border-bottom:1px solid var(--border);margin:0;}
+.move-modal .mm-list{overflow-y:auto;flex:1;padding:4px 0;}
+.move-modal .mm-item{padding:6px 16px;cursor:pointer;font-size:13px;transition:all var(--transition);display:flex;align-items:center;gap:6px;}
+.move-modal .mm-item:hover{background:var(--bg-hover);}
+.move-modal .mm-item.current{color:var(--text-muted);cursor:default;}
+.move-modal .mm-footer{padding:10px 16px;border-top:1px solid var(--border);text-align:right;}.mm-item.picked{background:var(--bg-hover);outline:1px solid var(--accent);border-radius:4px;}
+.move-modal .mm-arrow{display:inline-block;width:12px;font-size:9px;color:var(--text-muted);cursor:pointer;transition:transform .15s;user-select:none;}
+.move-modal .mm-arrow.open{transform:rotate(90deg);}
+.tagedit-list{display:flex;flex-direction:column;gap:2px;}
+.tagedit-row{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);}
+.tagedit-row:hover{border-color:var(--border-light);}
+.tagedit-name{flex:1;font-size:13px;color:var(--text-primary);}
+.tagedit-count{font-family:'Space Mono',monospace;font-size:11px;color:var(--text-muted);padding:2px 8px;background:var(--bg-card);border-radius:10px;}
+.tagedit-x{width:22px;height:22px;border-radius:50%;border:1px solid var(--border);background:var(--bg-card);color:var(--danger);cursor:pointer;font-size:11px;line-height:1;display:flex;align-items:center;justify-content:center;transition:all var(--transition);}
+.tagedit-x:hover{background:rgba(225,112,85,.15);border-color:var(--danger);}
+.tree-toggle.drop-over{background:var(--accent-dim);border-left:2px solid var(--accent);}
+.gallery-item.dragging{opacity:.4;}
+.dup-group{margin:0 20px 20px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-secondary);overflow:hidden;}
+.dup-group-title{padding:8px 16px;min-height:38px;font-size:13px;font-weight:600;color:var(--text-secondary);border-bottom:1px solid var(--border);background:var(--bg-card);display:flex;align-items:center;gap:6px;}.dup-group-title>.dgt-label{flex:1;min-width:0;}.dup-group-title>.dgt-actions{margin-left:auto;flex:none;display:flex;gap:6px;}
+/* v3.78: duplicates use the gallery grid, so the column slider and the tile behaviour are identical on both pages. */
+/* v3.73 dedupe badges + region heatmap */
+/* v3.78: badges sit ON the image now -- the picture is the point, the badges are the annotation. Bottom-anchored with a gradient so they stay readable over bright content. */
+/* v3.84: the badges sit inside .card-info, not on top of the thumbnail */
+.dup-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;}
+.dup-badge{font-size:10px;line-height:1;padding:3px 5px;border-radius:3px;font-weight:600;letter-spacing:.02em;white-space:nowrap;}
+.dup-badge.b-same{background:rgba(34,211,238,.15);color:#22d3ee;border:1px solid rgba(34,211,238,.35);}
+.dup-badge.b-lower{background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.4);}
+.dup-badge.b-best{background:rgba(74,222,128,.13);color:#4ade80;border:1px solid rgba(74,222,128,.35);}
+.dup-badge.b-edit{background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.4);}
+/* v3.83: neither best nor worst in the group */
+.dup-badge.b-mid{background:none;color:var(--text-muted);border:1px solid var(--border);}
+/* v3.83: a duplicate group renders a real .gallery grid; this only adds the inset */
+.dup-grid{padding:12px;}
+.dup-slider{-webkit-appearance:none;width:100%;height:6px;border-radius:3px;background:var(--bg-primary);outline:none;border:1px solid var(--border);}
+.dup-slider::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid var(--bg-secondary);}
+.dup-slider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid var(--bg-secondary);}
+.dup-loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:40px;color:var(--text-muted);font-size:14px;}
+.dup-loading .spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.modal-bg{position:fixed;inset:0;z-index:700;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;animation:modalIn .12s ease;}
+@keyframes modalIn{from{opacity:0}to{opacity:1}}
+.modal-box{background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);width:440px;max-width:90vw;overflow:visible;animation:modalSlide .15s ease;}
+@keyframes modalSlide{from{transform:translateY(-16px);opacity:0}to{transform:translateY(0);opacity:1}}
+.modal-body{padding:24px 24px 16px;font-size:14px;line-height:1.7;color:var(--text-secondary);white-space:pre-line;}
+.modal-body strong{color:var(--text-primary);}
+.modal-body .warn{color:var(--danger);font-weight:600;}
+.modal-input{width:100%;padding:10px 14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;margin-top:12px;}
+.modal-input:focus{border-color:var(--accent);}
+.modal-input::placeholder{color:var(--text-muted);}
+.modal-hint{font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.5;}
+.modal-footer{padding:12px 24px 16px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
+.modal-btn{padding:8px 20px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:13px;font-weight:500;cursor:pointer;transition:all var(--transition);font-family:'DM Sans',sans-serif;}
+.modal-btn:hover{background:var(--bg-hover);}
+.modal-btn.primary{background:var(--accent);border-color:var(--accent);color:#000;font-weight:600;}
+.modal-btn.primary:hover{background:var(--accent-light);}
+.modal-btn.danger{background:var(--danger);border-color:var(--danger);color:#fff;font-weight:600;}
+.modal-btn.danger:hover{opacity:.85;}
+.modal-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.ac-wrap{position:relative;}
+.ac-list{position:absolute;left:0;right:0;top:100%;margin-top:2px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);max-height:180px;overflow-y:auto;z-index:800;display:none;}
+.ac-list.open{display:block;}
+.ac-item{padding:6px 14px;font-size:13px;color:var(--text-secondary);cursor:pointer;transition:background var(--transition);display:flex;align-items:center;gap:8px;}
+.ac-item:hover,.ac-item.active{background:var(--bg-hover);color:var(--text-primary);}
+.ac-item .ac-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ac-item .ac-count{font-family:'Space Mono',monospace;font-size:11px;color:var(--text-muted);flex-shrink:0;}
+.ac-item mark{background:none;color:var(--accent-light);font-weight:600;}
+.ac-type{font-size:10px;color:var(--text-muted);margin-left:6px;opacity:.75;}.ac-type.ac-t-folder{color:#4d9fff;}.ac-type.ac-t-char{color:var(--accent);}.ac-type.ac-t-tag{color:#2fbfae;}
+body.folder-busy{cursor:progress;}
+body.folder-busy .ctx-menu{pointer-events:none;opacity:.5;}
+.folder-busy-overlay{position:fixed;top:0;left:0;right:0;z-index:2000;display:flex;justify-content:center;pointer-events:none;}

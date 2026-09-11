@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrackImage</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%230a0a0c%22%2F%3E%3Cpath%20d%3D%22M16%204.5%20L27.5%2016%20L16%2027.5%20L4.5%2016%20Z%22%20fill%3D%22none%22%20stroke%3D%22%23d4a017%22%20stroke-width%3D%222.4%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M16%2010.5%20L21.5%2016%20L16%2021.5%20L10.5%2016%20Z%22%20fill%3D%22%23d4a017%22%2F%3E%3C%2Fsvg%3E">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<div id="ti-splash" style="position:fixed;inset:0;background:#0d0d10;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:9999"><div style="font-family:'Space Mono',monospace;font-weight:700;font-size:22px;color:#e8b23e">◈ TrackImage</div><div style="width:26px;height:26px;border:3px solid #333;border-top-color:#e8b23e;border-radius:50%;animation:tispin .9s linear infinite"></div><div style="color:#888;font-size:13px">Loading collection…</div></div>
+<style>@keyframes tispin{to{transform:rotate(360deg)}}</style>
+<script>setTimeout(function(){var s=document.getElementById('ti-splash');if(s)s.remove();},25000);</script>
+<div class="content" id="content"></div>
+<div class="toast" id="toast"></div>
+<div id="import-veil"><div class="iv-card" id="iv-card"></div></div>
+  <script>
+  /* Rendered by Flask, so it can hold Jinja. Everything the
+     server decides at start-up is set here, before the files below
+     that read it. */
+  var TI_VERSION = '{{ version }}';
+  var WINDOW_MODE = {{ 'true' if window_mode else 'false' }};
+  var NATIVE_DRAG = {{ 'true' if native_drag else 'false' }};
+  var SERVER_WINDOW = {{ 'true' if server_window else 'false' }};
+  var IS_WINDOWS = {{ 'true' if is_windows else 'false' }};
+  var NATIVE_DROP = {{ 'true' if native_drop else 'false' }};
+  </script>
+  <script src="/static/js/01-state.js"></script>
+  <script src="/static/js/02-util.js"></script>
+  <script src="/static/js/03-api.js"></script>
+  <script src="/static/js/04-render.js"></script>
+  <script src="/static/js/05-gallery.js"></script>
+  <script src="/static/js/06-detail.js"></script>
+  <script src="/static/js/07-folders.js"></script>
+  <script src="/static/js/08-tags.js"></script>
+  <script src="/static/js/09-duplicates.js"></script>
+  <script src="/static/js/10-import.js"></script>
+  <script src="/static/js/11-settings.js"></script>
+  <script src="/static/js/12-modals.js"></script>
+  <script src="/static/js/13-startup.js"></script>
+
+</body>
+</html>
