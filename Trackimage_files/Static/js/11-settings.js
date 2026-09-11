@@ -524,8 +524,12 @@ async function checkUpdates(){
    +'</div></div>'
    +(r.warn?('<div class="proc-hint" style="color:var(--warning)">'+esc(r.warn)+'</div>')
            :('<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
-             +'<button class="btn btn-sm btn-primary" onclick="installUpdate()">Download &amp; install \u2014 '+esc(_updFmtMB(r.asset_size||0))+'</button>'
-             +'<a class="btn btn-sm" href="'+esc(r.page)+'" target="_blank" rel="noopener">Open on GitHub</a></div>'))
+             +'<button class="btn btn-sm btn-primary" onclick="installUpdate()">Download &amp; install'+(r.asset_size?(' \u2014 '+esc(_updFmtMB(r.asset_size))):'')+'</button>'
+             +'<a class="btn btn-sm" href="'+esc(r.page)+'" target="_blank" rel="noopener">Open on GitHub</a></div>'
+             /* Nothing was attached to the release, so what is fetched is the
+                source archive of the tag -- the same files, said plainly rather
+                than left for the user to wonder about. */
+             +(r.asset_source?('<div class="proc-hint">No file is attached to this release, so the source archive of tag '+esc(r.tag||'')+' is used \u2014 it holds the same folders TrackImage runs from. Its size is only known once the download starts.</div>'):'')))
    +'<div id="upd-prog" style="margin-top:12px"></div>';
 }
 

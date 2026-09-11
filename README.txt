@@ -1,4 +1,4 @@
-TrackImage v4.57
+TrackImage v4.58
 ================
 
 INSTALL
@@ -14,6 +14,21 @@ INSTALL
   (~1.26 GB) is not in this ZIP; fetch it from Settings when you want tagging.
 
   Python 3.10, 3.11 or 3.12.
+
+
+WHAT IS NEW IN v4.58
+  - Full view: the folder tree and the tag list beside the picture work. A
+    branch clicked there opens, and clicking a folder, a name, a tag or a
+    rating puts the filtered gallery back on screen instead of filtering a
+    view hidden behind the photograph.
+
+  - The buttons in the panel are named for what they do: Locate in Explorer,
+    Locate in TrackImage, Wipe metadata.
+
+  - Settings -> Repair & Update can install a release that has no ZIP attached
+    to it. GitHub builds a source archive from every tag, and that archive
+    holds the same folders TrackImage runs from; it is checked exactly as an
+    attached file would be before anything is replaced.
 
 
 WHAT IS NEW IN v4.57

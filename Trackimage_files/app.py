@@ -1,5 +1,31 @@
 """
-TrackImage v4.57
+TrackImage v4.58
+
+--- v4.58 ---
+- Full view: the library beside the picture works. The open picture carries its
+  own copy of the folder and tag columns, so every id in them exists twice, and
+  getElementById only ever answered with the first -- the hidden gallery copy
+  behind the picture. A branch of the tree clicked beside the photograph stayed
+  shut and a tag clicked there filtered a gallery nobody could see. Both copies
+  are addressed by class now and fold and redraw together.
+- Choosing a folder, a name, a tag or a rating there also leaves the picture:
+  the overlay steps aside and the gallery it just filtered comes forward, which
+  is what "show me these" was asking for. Folding a branch open is not a choice
+  of that kind and leaves the picture where it is. The same goes for removing
+  one of the filter chips above the tag column.
+- Keyboard navigation of those columns looks inside the open picture's copy
+  rather than at whichever copy the document lists first.
+- The buttons in the panel say what they do: Locate in Explorer, Locate in
+  TrackImage, Wipe metadata.
+- The updater installs a release that has no file attached to it. GitHub builds
+  a source archive from every tag, and for this project that archive IS the
+  release -- the same folders TrackImage runs from. It was invisible here
+  because only uploaded assets were looked at, so a release published without
+  a hand-made ZIP reported "cannot be installed from here" while the download
+  sat on the page. The archive is still verified the same way: it has to be
+  intact, has to be TrackImage, and has to contain the version its tag claims.
+  GitHub packs it on the fly and announces no length, so the progress reads in
+  megabytes rather than as a percentage.
 
 --- v4.57 ---
 - Settings has a new tab, Repair & Update. The installation check moved there

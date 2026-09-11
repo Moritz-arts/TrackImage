@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -32,6 +33,11 @@ AUTO_CHECK_DEFAULT = False  # a check happens when the button is pressed
 
 API_LATEST = "https://api.github.com/repos/%s/%s/releases/latest"
 RELEASES_PAGE = "https://github.com/%s/%s/releases"
+#: The archive GitHub builds from a tag -- the "Source code (zip)" every release
+#: carries whether or not a file was attached to it. Written in the
+#: github.com/<owner>/<repo>/ form rather than the API's zipball_url so it
+#: passes the same origin check as an attached asset.
+SOURCE_ZIP = "https://github.com/%s/%s/archive/refs/tags/%s.zip"
 
 #: Where the install lives. APP_DIR is Trackimage_files; ROOT_DIR holds it and
 #: the launchers, and is what the swap actually rearranges.
@@ -142,6 +148,23 @@ def check_for_update():
             asset = a
             break
 
+    asset_name = (asset or {}).get("name") or ""
+    asset_url = (asset or {}).get("browser_download_url") or ""
+    asset_size = int((asset or {}).get("size") or 0)
+    from_source = False
+    if not asset_url and tag:
+        # No file was attached to the release. That is not the dead end it used
+        # to be: TrackImage ships as the repository's own folders, so the source
+        # archive GitHub builds from the tag IS the release -- same files, same
+        # layout, and _verify still has to find the version it claims inside it.
+        # Its size is not known until the download runs, because GitHub packs
+        # that archive on the fly.
+        asset_url = SOURCE_ZIP % (GITHUB_OWNER, GITHUB_REPO,
+                                  urllib.parse.quote(tag, safe=""))
+        asset_name = "%s-%s.zip" % (GITHUB_REPO, tag)
+        asset_size = 0
+        from_source = True
+
     out = {
         "ok": True,
         "current": VERSION,
@@ -152,13 +175,14 @@ def check_for_update():
         "notes": (data.get("body") or "")[:8000],
         "page": data.get("html_url") or (RELEASES_PAGE % (GITHUB_OWNER, GITHUB_REPO)),
         "published": (data.get("published_at") or "")[:10],
-        "asset_name": (asset or {}).get("name") or "",
-        "asset_url": (asset or {}).get("browser_download_url") or "",
-        "asset_size": int((asset or {}).get("size") or 0),
+        "asset_name": asset_name,
+        "asset_url": asset_url,
+        "asset_size": asset_size,
+        "asset_source": from_source,
     }
     if out["newer"] and not out["asset_url"]:
-        out["warn"] = ("Release %s has no ZIP attached, so it cannot be installed "
-                       "from here." % tag)
+        out["warn"] = ("Release %s carries no ZIP and no tag to build one from, "
+                       "so it cannot be installed from here." % (tag or "?"))
     return out
 
 
@@ -183,6 +207,12 @@ def _download(url, dest):
                 if total:
                     _set("downloading", 5 + int(got * 55 / total),
                          "%.1f of %.1f MB" % (got / 1048576.0, total / 1048576.0))
+                else:
+                    # An archive GitHub packs from a tag arrives chunked, with no
+                    # length announced: there is nothing to be a percentage of,
+                    # so the bar creeps and the megabytes carry the truth.
+                    _set("downloading", min(58, 5 + int(got / 1048576.0 * 4)),
+                         "%.1f MB" % (got / 1048576.0))
     return got
 
 
