@@ -1,5 +1,5 @@
 """
-TrackImage v4.58
+TrackImage v4.59
 
 --- v4.59 ---
 - TrackImage follows the repository's main branch instead of its releases. A
