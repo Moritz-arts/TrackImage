@@ -1,13 +1,18 @@
-# TrackImage follows this branch rather than its releases, and the updater only
-# offers what carries a higher version than the one installed. So the version
-# has to move whenever the code does -- and that is done here rather than by
-# hand, because a number nobody remembers to raise is a number that silently
-# stops meaning anything.
+# One push to main is one version of TrackImage.
 #
-# Put [skip version] in a commit message to push without raising it (a typo in
-# the README, say). The bump commit itself is pushed with GITHUB_TOKEN, which
-# by design starts no further workflow runs; [skip ci] says the same thing out
-# loud, so nothing here can chase its own tail.
+# This raises the number, writes the line that says what changed, and tags it.
+# It does NOT publish a release: whether a version is good enough to hand to
+# people is a judgement, and a judgement is not something a workflow gets to
+# make. When you decide one is, the tag is already sitting there -- draft a
+# release from it and paste its section out of CHANGELOG.md.
+#
+# The commit it makes keeps YOUR subject line and adds the version to it, so
+# the repository's front page reads "what changed (v4.60)" rather than a column
+# of identical version numbers.
+#
+# Put [skip version] in a commit message to push without any of this. The
+# workflow's own commit is pushed with GITHUB_TOKEN, which by design starts no
+# further runs, and carries [skip ci] as well, so it cannot chase its own tail.
 name: Raise the version
 
 on:
@@ -28,24 +33,62 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+          # The changelog is built from the commits since the last tag, so the
+          # history and the tags both have to be here.
+          fetch-depth: 0
 
       - name: Raise the version by one
         id: bump
         run: python3 .github/bump_version.py
 
-      - name: Commit and push it
+      - name: Write the changelog entry
+        env:
+          VER: ${{ steps.bump.outputs.version }}
+        run: |
+          NOTES=$(python3 .github/changelog_entry.py "$VER")
+          printf '%s\n' "$NOTES"
+          # Also in the run summary, so the text for a release is one click away
+          # rather than something to go and find in the file.
+          {
+            printf '## v%s\n\n%s\n\n' "$VER" "$NOTES"
+            printf '_Draft a release from tag `v%s` and paste this._\n' "$VER"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit, tag and push
+        env:
+          VER: ${{ steps.bump.outputs.version }}
+          # Through the environment, never interpolated into the script: this is
+          # whatever somebody typed in a commit message, quotes and all.
+          HEAD_MSG: ${{ github.event.head_commit.message }}
         run: |
           if git diff --quiet; then
-            echo "Nothing to commit -- no version line moved."
+            echo "Nothing moved -- no version line, no changelog."
             exit 0
           fi
+          # First line, shortened at a word if it is long. A plain cut would stop
+          # mid-word, and "the history stays s (v4.60)" reads like a mistake.
+          SUBJECT=${HEAD_MSG%%$'\n'*}
+          if [ ${#SUBJECT} -gt 64 ]; then
+            SUBJECT="${SUBJECT:0:64}"
+            SUBJECT="${SUBJECT% *}…"
+          fi
+          [ -n "$SUBJECT" ] || SUBJECT="Changes"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "v${{ steps.bump.outputs.version }} [skip ci]"
+          # add -A, not commit -a: on the first run CHANGELOG.md does not exist
+          # yet, and -a never picks up a file git has not been told about.
+          git add -A
+          git commit -m "$SUBJECT (v$VER)" -m "[skip ci]"
+          # The tag must sit on the commit that carries the new number, or an
+          # archive built from it claims a version it does not contain -- which
+          # is the exact trap this whole arrangement exists to close.
+          git tag -a "v$VER" -m "v$VER"
           # Somebody may have pushed while this ran. Rebase onto whatever is
           # there now and try once more; a second failure means the branch is
-          # moving faster than this job and the next push will raise it anyway.
+          # moving faster than this job, and the next push raises it anyway.
           git push origin HEAD:main || {
             git pull --rebase origin main
+            git tag -f -a "v$VER" -m "v$VER"
             git push origin HEAD:main
           }
+          git push origin "v$VER"

@@ -484,18 +484,58 @@ async function netHeartbeat(){
 
 var _updLast=null,_updTimer=null;
 
+/* Which of the two channels this installation follows. Stable is a version
+   somebody has looked at and declared finished; Latest is the main branch as it
+   stands, minutes after a change is pushed. Same numbering, same files -- they
+   differ only in which commit they point at. */
+var _updChannel='stable';
+
+function channelBtns(){
+  return '<span><button class="btn btn-sm'+(_updChannel==='stable'?' btn-primary':'')+'" onclick="setUpdateChannel(\'stable\')" title="Versions declared finished">Stable</button> '
+        +'<button class="btn btn-sm'+(_updChannel==='latest'?' btn-primary':'')+'" onclick="setUpdateChannel(\'latest\')" title="The main branch as it stands">Latest</button></span>';
+}
+
+function channelHintHtml(){
+  return (_updChannel==='latest')
+    ? 'Every change, as soon as it reaches the <b>main</b> branch \u2014 the version rises with each one, so an update can arrive several times a day. Newest work first, and the first to meet whatever it got wrong.'
+    : 'Only versions that have been looked at and released. Fewer updates, each one somebody decided was ready to hand out.';
+}
+
 function updateCardHtml(){
   return '<div class="settings-card"><h3>Version</h3>'
    +'<div class="proc-row"><label>Installed</label><span class="val" style="font-family:\'Space Mono\',monospace;color:var(--accent-light)">v'+TI_VERSION+'</span></div>'
+   +'<div class="proc-row"><label>Channel</label><span id="upd-ch-row">'+channelBtns()+'</span></div>'
+   +'<div class="proc-hint" id="upd-ch-hint">'+channelHintHtml()+'</div>'
    +'<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
    +'<button class="btn btn-sm btn-primary" id="upd-btn" onclick="checkUpdates()">Search for updates</button>'
+   +'<a class="btn btn-sm" href="https://github.com/Moritz-arts/TrackImage/blob/main/CHANGELOG.md" target="_blank" rel="noopener">What changed</a>'
    +'</div>'
    +'<div id="upd-result" style="margin-top:14px"></div>'
    +'<div class="proc-row" style="margin-top:16px"><label>Check automatically at start</label>'
    +'<label class="switch"><input id="upd-auto" type="checkbox" onchange="setAutoCheck(this.checked)"><span class="slider"></span></label></div>'
-   +'<div class="proc-hint">Off by default. TrackImage opens no connection of its own \u2014 with this on, it asks GitHub once per start whether the <b>main</b> branch carries a newer version, and nothing else.</div>'
-   +'<div class="proc-hint" style="margin-top:10px">TrackImage follows the repository’s <b>main</b> branch, not its releases — what you get is what the repository holds right now. An update downloads that branch, checks the archive, copies the database to <b>Userdata-backup-v'+TI_VERSION+'.zip</b> beside the installation, and then restarts into the new version. Your pictures, database, settings and the tagging model stay where they are. If the swap fails at any point the previous version is put back.</div>'
+   +'<div class="proc-hint">Off by default. TrackImage opens no connection of its own \u2014 with this on, it asks GitHub once per start whether the chosen channel carries a newer version, and nothing else.</div>'
+   +'<div class="proc-hint" style="margin-top:10px">An update downloads that version straight from the repository, checks the archive, copies the database to <b>Userdata-backup-v'+TI_VERSION+'.zip</b> beside the installation, and then restarts into the new version. Your pictures, database, settings and the tagging model stay where they are. If the swap fails at any point the previous version is put back.</div>'
    +'</div>';
+}
+
+async function setUpdateChannel(name){
+  if(_updChannel===name)return;
+  var prev=_updChannel;
+  _updChannel=name;
+  _redrawChannel();
+  var out=document.getElementById('upd-result');if(out)out.innerHTML='';
+  _updLast=null;
+  var r={};
+  try{r=await api('/api/update/channel',{method:'POST',body:JSON.stringify({channel:name})});}
+  catch(e){r={error:String(e)};}
+  if(r.error){_updChannel=prev;_redrawChannel();showToast('Could not switch channel','error');return;}
+  showToast(name==='latest'?'Following the main branch':'Following stable versions','success');
+  checkUpdates();
+}
+
+function _redrawChannel(){
+  var row=document.getElementById('upd-ch-row');if(row)row.innerHTML=channelBtns();
+  var h=document.getElementById('upd-ch-hint');if(h)h.innerHTML=channelHintHtml();
 }
 
 function _updFmtMB(n){return (n/1048576).toFixed(1)+' MB';}
@@ -513,7 +553,7 @@ async function checkUpdates(){
     return;
   }
   if(!r.newer){
-    out.innerHTML='<div class="proc-hint" style="color:var(--success)">\u2713 v'+esc(r.current)+' \u2014 nothing newer on '+esc(r.branch||'main')+'.</div>';
+    out.innerHTML='<div class="proc-hint" style="color:var(--success)">\u2713 v'+esc(r.current)+' \u2014 nothing newer on '+(r.channel==='latest'?('the '+esc(r.branch||'main')+' branch'):'the stable channel')+'.</div>';
     return;
   }
   var notes=esc(r.notes||'').replace(/\n/g,'<br>');
@@ -528,7 +568,7 @@ async function checkUpdates(){
              +'<a class="btn btn-sm" href="'+esc(r.page)+'" target="_blank" rel="noopener">Open on GitHub</a></div>'
              /* Where this comes from, said plainly rather than left for the
                 user to wonder about. */
-             +'<div class="proc-hint">Taken from the <b>'+esc(r.branch||'main')+'</b> branch'+(r.sha?(' at '+esc(r.sha)):'')+' \u2014 the repository\u2019s own folders, the same ones TrackImage runs from. GitHub packs that archive on request, so its size is only known once the download starts.</div>'))
+             +'<div class="proc-hint">Taken from '+(r.channel==='latest'?('the <b>'+esc(r.branch||'main')+'</b> branch'+(r.sha?(' at '+esc(r.sha)):'')):('the <b>'+esc(r.tag||('v'+r.latest))+'</b> release'))+' \u2014 the repository\u2019s own folders, the same ones TrackImage runs from. GitHub packs that archive on request, so its size is only known once the download starts.</div>'))
    +'<div id="upd-prog" style="margin-top:12px"></div>';
 }
 
@@ -579,6 +619,12 @@ async function loadAutoCheck(){
     var r=await api('/api/update/auto');
     var el=document.getElementById('upd-auto');
     if(el)el.checked=!!r.enabled;
+  }catch(e){}
+  /* The card is drawn before this runs, so it starts on the default and is
+     corrected here rather than guessing. */
+  try{
+    var c=await api('/api/update/channel');
+    if(c&&c.channel&&c.channel!==_updChannel){_updChannel=c.channel;_redrawChannel();}
   }catch(e){}
 }
 
