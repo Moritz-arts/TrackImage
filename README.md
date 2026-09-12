@@ -1,4 +1,4 @@
-# TrackImage v4.62
+# TrackImage v4.63
 
 [what changed](docs/CHANGELOG.md) · [releases](../../releases)
 

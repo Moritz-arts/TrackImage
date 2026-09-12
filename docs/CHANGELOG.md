@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.63 — 2026-09-12
+
+- The workshop files stay out of what people download
+
 ## v4.62 — 2026-09-12
 
 - The version sits in the README title, and a hint stops overlapping its buttons
