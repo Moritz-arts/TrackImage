@@ -4,17 +4,17 @@ A local image library: a Flask server, a vanilla-JS front end, an SQLite
 database, and no build step anywhere. The repository *is* the program — what
 people download and unpack is these folders, unchanged.
 
-`docs/FOLDER_MAP.md` describes the layout in full. Read it before moving
+`Trackimage_files/docs/FOLDER_MAP.md` describes the layout in full. Read it before moving
 anything between layers.
 
-The repository root stays short on purpose — README.md, CLAUDE.md, the three
-launchers, `Trackimage_files/` and `docs/`. Prose that is not the front page
-goes in `docs/`; do not add another file beside the launchers.
+The repository root stays short on purpose — README.md, CLAUDE.md and the three
+launchers. Everything else lives in `Trackimage_files/`, `docs/` included, so an
+installation is six entries. Do not add another file beside the launchers.
 
 **What people download is not what the repository holds.** `.gitattributes`
 marks the workshop files `export-ignore`, so `.github/`, `CLAUDE.md` and the
 ignore lists are absent from the source archive GitHub builds — an installation
-is README.md, `docs/`, `Trackimage_files/` and the launchers. A new file that
+is README.md, `Trackimage_files/` and the launchers. A new file that
 belongs to the workshop rather than to the program goes in that list too, and
 in the helper's cleanup in `updater.py` so installations made before it stop
 carrying it. It changes nothing for a clone, and Actions is unaffected: it
@@ -43,7 +43,7 @@ already happened once, and cost main a version number. In a commit message call
 it "the skip marker" and spell it nowhere. Inside a file like this one it is
 harmless; only commit messages are scanned.
 
-**Never write `docs/CHANGELOG.md` by hand either.** The same workflow prepends an
+**Never write the changelog by hand either.** The same workflow prepends an
 entry from the commits since the previous tag — one line per commit, taken from
 the subject. So **the commit subject is the changelog line**: write it as a
 statement about what changed, in English, readable on its own. The bump commit
@@ -66,7 +66,7 @@ stays with the diff.
 3. The workflow raises the version, writes the changelog line, tags the commit
    (`v4.60`), and pushes. It does **not** publish a release.
 4. When the user judges a version ready, they draft a release from its tag by
-   hand and paste that version's section out of `docs/CHANGELOG.md`.
+   hand and paste that version's section out of `Trackimage_files/docs/CHANGELOG.md`.
 
 TrackImage offers two channels in Settings › Repair & Update:
 
@@ -92,9 +92,9 @@ Do not create releases or tags yourself, and do not push to `main`.
 - **A tag must sit on a commit that contains the version it names.** v4.58 was
   once tagged over a tree that still said 4.57; the updater refused it, and
   correctly so. The workflow tags its own bump commit for this reason.
-- **An update replaces, it does not merge.** `Trackimage_files/` and `docs/`
-  are swapped whole by the helper in `updater.py`, and a file an older version
-  shipped and this one does not is deleted by name there. Drop a file from the
+- **An update replaces, it does not merge.** `Trackimage_files/` is swapped
+  whole by the helper in `updater.py`, and a file an older version shipped and
+  this one does not is deleted by name there. Drop a file from the
   root and it has to be added to that list, or it survives on every machine
   that updates.
 - **`Userdata/`, `models/` and `venv/` belong to the machine, not the program.**
@@ -112,10 +112,15 @@ Do not create releases or tags yourself, and do not push to `main`.
   the names that version knew. `tidy_installation()` in `updater.py` runs at
   start from the version that actually knows them; add a newly dropped name to
   its `_STALE` list as well as to the helper.
-- **The update helper runs without a console.** On Windows that rules out
+- **A backup belongs to the user.** Backups go to
+  `Trackimage_files/Userdata/Backup`, the last three are kept, and older ones
+  are removed. Stray ones from the layout before that are *moved* there at
+  start, never deleted — deleting somebody's backup is not a tidy-up.
+- **The update helper runs in a window of its own.** On Windows that rules out
   `timeout` and `pause` — they refuse to run and the script sails past every
   wait, or hangs forever on a keypress nobody can give. `ping -n` is the sleep,
-  and every exit path restarts TrackImage, including the ones that failed.
+  `echo` is the progress, and every exit path restarts TrackImage — including
+  the ones that failed.
 
 ## House style
 

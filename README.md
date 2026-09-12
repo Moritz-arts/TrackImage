@@ -1,6 +1,6 @@
 # TrackImage v4.64
 
-[what changed](docs/CHANGELOG.md) · [releases](../../releases)
+[what changed](Trackimage_files/docs/CHANGELOG.md) · [releases](../../releases)
 
 A local danbooru-style image library that never leaves your machine.
 
@@ -47,12 +47,12 @@ Settings › Repair & Update checks this repository and offers two channels:
 
 Both use the same version numbers and the same files — they differ only in which
 commit they point at. The version is raised on every push to `main`, and
-[docs/CHANGELOG.md](docs/CHANGELOG.md) lists what each one brought.
+[the changelog](Trackimage_files/docs/CHANGELOG.md) lists what each one brought.
 
 Whichever channel you pick, the button downloads it, verifies the archive,
-copies your database to
-`Userdata-backup-v<version>.zip` beside the installation, and restarts into the
-new version. Your pictures, database, settings and the tagging model are carried
+copies your database into
+`Trackimage_files/Userdata/Backup`, and restarts into the new version. A window
+shows the progress while TrackImage is closed. Your pictures, database, settings and the tagging model are carried
 across untouched. If anything goes wrong the previous version is put back.
 
 You can also just download the source ZIP and unpack it into a new empty folder,
@@ -65,8 +65,8 @@ will.
 TrackImage/
 ├─ start-windows.bat / start-linux.sh / start-macos.command
 ├─ README.md
-├─ docs/           CHANGELOG.md and FOLDER_MAP.md
 └─ Trackimage_files/
+    ├─ docs/        CHANGELOG.md and FOLDER_MAP.md
     ├─ app.py
     ├─ trackimage/   the Python package, 27 layers
     ├─ Static/       index.html, css, js, fonts, icons
@@ -74,7 +74,7 @@ TrackImage/
     └─ Userdata/     your database and logs, never touched by an update
 ```
 
-`docs/FOLDER_MAP.md` describes it in full. The repository also holds the
+`Trackimage_files/docs/FOLDER_MAP.md` describes it in full. The repository also holds the
 automation and the notes for whoever works on TrackImage; those are kept out of
 the archive, so what you unpack is the program and nothing else.
 
