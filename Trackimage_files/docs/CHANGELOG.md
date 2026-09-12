@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.69 — 2026-09-12
+
+- An update turns the indicator, narrates itself, and names the folder after itself
+
 ## v4.68 — 2026-09-12
 
 - Settings opens at the speed of its slowest request, not the sum of them
