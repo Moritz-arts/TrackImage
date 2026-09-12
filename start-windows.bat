@@ -9,7 +9,7 @@ if not exist "%TIDIR%\app.py" (
   echo  [ERROR] Trackimage_files\app.py not found next to this launcher.
   echo          Unpack the whole ZIP, keeping start-windows.bat and the
   echo          Trackimage_files folder side by side.
-  pause & exit /b 1
+  call :hold & exit /b 1
 )
 cd /d "%TIDIR%"
 :: v4.51: these live under Userdata now. Making them here, where they used to
@@ -116,7 +116,7 @@ if errorlevel 1 (
   echo  [ERROR] TrackImage cannot start until the packages listed above are
   echo          installed. The full setup output is in Userdata\Logs\install.log.
   echo.
-  pause
+  call :hold
   exit /b 1
 )
 if defined DEPFAIL call :say "       note: pip reported trouble with:%DEPFAIL%"
@@ -141,7 +141,7 @@ echo  Starting TrackImage...
 if not exist "%TIDIR%\venv\Scripts\pythonw.exe" (
   echo  [WARN] pythonw.exe missing in the venv - starting with the console instead.
   python app.py
-  if errorlevel 1 ( echo. & echo  [ERROR] Server crashed! & pause )
+  if errorlevel 1 ( echo. & echo  [ERROR] Server crashed! & call :hold )
   exit /b
 )
 start "" "%TIDIR%\venv\Scripts\pythonw.exe" "%TIDIR%\app.py"
@@ -177,7 +177,7 @@ start "" "http://%URLHOST%:5001"
 echo  To start this version instead, close that window - or end pythonw.exe in
 echo  the Task Manager - and run this file again.
 echo.
-pause
+call :hold
 exit /b
 
 :no_start
@@ -206,5 +206,21 @@ python app.py
 :: exit as well, and a start that ended in half a second looked like nothing had
 :: happened at all.
 echo.
-pause
+call :hold
 exit /b
+
+:: v4.67: a window that waits for a keypress is fine when somebody just
+:: double-clicked this file. After an update nobody is sitting in front of it --
+:: the helper starts this script by itself -- and the window then stays on
+:: screen for ever, which is exactly what it did. TI_AFTER_UPDATE says which
+:: of the two it is.
+:hold
+if defined TI_AFTER_UPDATE (
+  echo.
+  echo  This window closes on its own in 20 seconds.
+  echo  The same text is in Userdata\Logs\install.log.
+  ping -n 21 127.0.0.1 >nul
+) else (
+  pause
+)
+goto :eof

@@ -495,30 +495,22 @@ def backup_userdata():
 
 _BAT = r"""@echo off
 setlocal
-title TrackImage update
 set "ROOT=%(root)s"
 set "STAGE=%(stage)s"
 set "PID=%(pid)s"
 set "SRC=%(src)s"
 set "LOG=%(log)s"
 set "REPORT=%(root)s\Trackimage_files\Userdata\Logs\update.log"
->"%%LOG%%" echo TrackImage update: waiting for the app to close
+>"%%LOG%%" echo Update started
 
-rem A window, because an update that takes half a minute with nothing on screen
-rem looks exactly like a program that has crashed. It says what it is doing and
-rem closes itself when TrackImage comes back.
-echo.
-echo   ========================================
-echo      TrackImage is updating
-echo   ========================================
-echo.
-echo   Do not close this window.
-echo.
+rem No window of its own. Every step is written to the log instead, and the
+rem version that comes up reads that log into TrackImage's own console -- one
+rem place for what happened, the one the user is already looking at.
 
 rem ping is the sleep here, not timeout: timeout reads from the console and
 rem fails wherever there is none, which used to make every wait below no wait
 rem at all -- the swap was attempted in the same breath as the app exiting.
-echo   [1/5] Waiting for TrackImage to close...
+call :step "[1/5] Waiting for TrackImage to close"
 :wait
 tasklist /FI "PID eq %%PID%%" 2>nul | find "%%PID%%" >nul
 if not errorlevel 1 (
@@ -534,20 +526,19 @@ if exist "%%ROOT%%\Trackimage_files.bak" rmdir /s /q "%%ROOT%%\Trackimage_files.
 rem A handle held a second longer -- a virus scanner reading the folder, an
 rem explorer window open in it -- is a reason to wait, not to abandon the
 rem update. Half a minute of trying, then the previous version stays.
-echo   [2/5] Setting the old version aside...
+call :step "[2/5] Setting the old version aside"
 set /a TRY=0
 :trymove
 move "%%ROOT%%\Trackimage_files" "%%ROOT%%\Trackimage_files.bak" >nul 2>&1
 if not errorlevel 1 goto moved
 set /a TRY+=1
->>"%%LOG%%" echo could not move Trackimage_files aside (attempt %%TRY%%)
+call :step "      still in use, waiting (%%TRY%%/30)"
 if %%TRY%% GEQ 30 goto giveup
-echo         still in use, waiting... (%%TRY%%/30)
 ping -n 2 127.0.0.1 >nul
 goto trymove
 :moved
 
-echo   [3/5] Putting the new version in place...
+call :step "[3/5] Putting the new version in place"
 move "%%SRC%%\Trackimage_files" "%%ROOT%%\Trackimage_files" >nul 2>&1
 if errorlevel 1 goto rollback
 
@@ -555,7 +546,7 @@ rem This machine's own things, carried across rather than taken from the
 rem archive: the database, the tagging model, and the Python environment the
 rem launcher built. That environment is gigabytes and minutes of pip -- losing
 rem it on every update would mean losing auto-tagging on every update.
-echo   [4/5] Carrying your library, model and Python environment across...
+call :step "[4/5] Carrying the library, model and Python environment across"
 move "%%ROOT%%\Trackimage_files.bak\Userdata" "%%ROOT%%\Trackimage_files\Userdata" >nul 2>&1
 if errorlevel 1 goto rollback
 if exist "%%ROOT%%\Trackimage_files.bak\models" (
@@ -579,14 +570,15 @@ if exist "%%ROOT%%\.github" rmdir /s /q "%%ROOT%%\.github" >nul 2>nul
 if exist "%%ROOT%%\docs" rmdir /s /q "%%ROOT%%\docs" >nul 2>nul
 if exist "%%ROOT%%\TrackImage-update.log" del /q "%%ROOT%%\TrackImage-update.log" >nul 2>nul
 
-echo   [5/5] Starting TrackImage...
+call :step "[5/5] Starting TrackImage"
 rmdir /s /q "%%ROOT%%\Trackimage_files.bak" >nul 2>&1
 rmdir /s /q "%%STAGE%%" >nul 2>&1
-del /q "%%LOG%%" >nul 2>&1
+call :handover
+rem TI_AFTER_UPDATE tells the launcher not to wait for a keypress if it has
+rem something to report: nobody is sitting in front of that window, and one that
+rem waits for a key nobody presses stays on screen for ever.
+set "TI_AFTER_UPDATE=1"
 start "" "%%ROOT%%\start-windows.bat"
-echo.
-echo   Done.
-ping -n 3 127.0.0.1 >nul
 rem Nothing is left of the update: this script is the last piece, and it goes
 rem too. (goto) with no label ends the batch while the & chain still runs, which
 rem is the only way a batch file can remove itself.
@@ -594,30 +586,31 @@ rem is the only way a batch file can remove itself.
 exit /b 0
 
 :rollback
->>"%%LOG%%" echo the swap failed -- putting the previous version back
+call :step "The swap failed -- putting the previous version back"
 if exist "%%ROOT%%\Trackimage_files" rmdir /s /q "%%ROOT%%\Trackimage_files"
 move "%%ROOT%%\Trackimage_files.bak" "%%ROOT%%\Trackimage_files" >nul 2>&1
 :giveup
->>"%%LOG%%" echo the update was not installed. The previous version is in place
->>"%%LOG%%" echo and nothing in Userdata was touched.
-echo.
-echo   The update could not be installed.
-echo   The previous version is back in place and your library is untouched.
-echo   Details: Trackimage_files\Userdata\Logs\update.log
-echo.
-rem No pause: there may be no console to read a key from, and waiting for one
-rem is how an update once ended with TrackImage simply never coming back. Long
-rem enough to read, then on with the restart.
-rem What went wrong is kept, but in the log folder with everything else rather
-rem than as a stray file beside the launchers.
-if exist "%%ROOT%%\Trackimage_files\Userdata\Logs" copy /y "%%LOG%%" "%%REPORT%%" >nul 2>nul
-del /q "%%LOG%%" >nul 2>&1
+call :step "The update was not installed. The previous version is in place and nothing in Userdata was touched."
 rmdir /s /q "%%STAGE%%" >nul 2>&1
-echo   Starting the previous version...
+call :handover
+set "TI_AFTER_UPDATE=1"
 start "" "%%ROOT%%\start-windows.bat"
-ping -n 9 127.0.0.1 >nul
 (goto) 2>nul & del /q "%%~f0"
 exit /b 1
+
+rem --- helpers -------------------------------------------------------------
+:step
+echo   %%~1
+>>"%%LOG%%" echo %%~1
+goto :eof
+
+:handover
+rem The account of what happened goes where TrackImage keeps its logs, so the
+rem version that starts next can read it into its own console.
+if not exist "%%ROOT%%\Trackimage_files\Userdata\Logs" mkdir "%%ROOT%%\Trackimage_files\Userdata\Logs" >nul 2>nul
+copy /y "%%LOG%%" "%%REPORT%%" >nul 2>nul
+del /q "%%LOG%%" >nul 2>&1
+goto :eof
 """
 
 _SH = r"""#!/bin/sh
@@ -628,6 +621,18 @@ PID=%(pid)s
 LOG="%(log)s"
 REPORT="%(root)s/Trackimage_files/Userdata/Logs/update.log"
 
+# Every step is written down rather than shown: the swap happens while
+# TrackImage is closed, so the version that comes up reads this back into the
+# console the user already has open.
+say() { echo "$1"; echo "$1" >> "$LOG"; }
+
+# The account of what happened goes where TrackImage keeps its logs.
+handover() {
+  mkdir -p "$ROOT/Trackimage_files/Userdata/Logs" 2>/dev/null
+  cp -f "$LOG" "$REPORT" 2>/dev/null
+  rm -f "$LOG"
+}
+
 # However this ends, TrackImage comes back. An update that fails and leaves the
 # user staring at a closed window is worse than one that never started: the
 # previous version is still there and perfectly able to run.
@@ -635,8 +640,12 @@ restart() {
   # Nothing is left of the update: the staging folder, the log, and this script
   # itself. Unlinking a running script is safe -- the shell holds it open by
   # descriptor -- and every caller exits immediately afterwards.
-  rm -rf "$STAGE" "$LOG"
+  handover
+  rm -rf "$STAGE"
   rm -f "$0"
+  # Nobody is sitting in front of the window the launcher may open, so it must
+  # not wait for a keypress.
+  export TI_AFTER_UPDATE=1
   chmod +x "$ROOT"/start-linux.sh "$ROOT"/start-macos.command 2>/dev/null
   if [ -x "$ROOT/start-macos.command" ] && [ "$(uname)" = "Darwin" ]; then
     open "$ROOT/start-macos.command"
@@ -646,10 +655,7 @@ restart() {
 }
 
 give_up() {
-  echo "$1" >> "$LOG"
-  # What went wrong is kept, but in the log folder with everything else rather
-  # than as a stray file beside the launchers.
-  [ -d "$ROOT/Trackimage_files/Userdata/Logs" ] && cat "$LOG" >> "$REPORT" 2>/dev/null
+  say "$1"
   restart
   exit 1
 }
@@ -660,6 +666,7 @@ put_back() {
   give_up "The update could not be installed. The previous version was put back."
 }
 
+say "[1/5] Waiting for TrackImage to close"
 while kill -0 "$PID" 2>/dev/null; do sleep 1; done
 sleep 2
 
@@ -667,6 +674,7 @@ rm -rf "$ROOT/Trackimage_files.bak"
 
 # Something holding the folder a second longer is a reason to wait, not to
 # abandon the update. Half a minute of trying, then the previous version stays.
+say "[2/5] Setting the old version aside"
 TRY=0
 until mv "$ROOT/Trackimage_files" "$ROOT/Trackimage_files.bak" 2>/dev/null; do
   TRY=$((TRY + 1))
@@ -674,7 +682,9 @@ until mv "$ROOT/Trackimage_files" "$ROOT/Trackimage_files.bak" 2>/dev/null; do
   sleep 1
 done
 
+say "[3/5] Putting the new version in place"
 mv "$SRC/Trackimage_files" "$ROOT/Trackimage_files" 2>/dev/null || put_back
+say "[4/5] Carrying the library, model and Python environment across"
 mv "$ROOT/Trackimage_files.bak/Userdata" "$ROOT/Trackimage_files/Userdata" 2>/dev/null || put_back
 # This machine's own things, carried across rather than taken from the archive:
 # the tagging model, and the Python environment the launcher built. Rebuilding
@@ -693,6 +703,7 @@ rm -f "$ROOT/README.txt" "$ROOT/CLAUDE.md" "$ROOT/.gitignore" "$ROOT/.gitattribu
       "$ROOT/TrackImage-update.log"
 rm -rf "$ROOT/.github" "$ROOT/docs"
 
+say "[5/5] Starting TrackImage"
 rm -rf "$ROOT/Trackimage_files.bak"
 restart
 exit 0
@@ -717,6 +728,34 @@ _STALE = (
     "TrackImage-update.log",    # an update log, now kept in Userdata/Logs
     "docs",                     # moved into Trackimage_files in v4.65
 )
+
+
+#: Where the helper leaves its account of the last swap.
+UPDATE_REPORT = os.path.join(USERDATA_DIR, "Logs", "update.log")
+
+
+def report_last_update():
+    """Read the helper's account of the last swap into TrackImage's console.
+
+    The swap happens while TrackImage is closed, so nothing it does can be shown
+    as it happens. It writes each step down instead, and the version that comes
+    up says it out loud -- in the console the user already has open, rather than
+    in a second window that appears from nowhere.
+    """
+    try:
+        if not os.path.isfile(UPDATE_REPORT):
+            return False
+        with open(UPDATE_REPORT, "r", encoding="utf-8", errors="replace") as f:
+            lines = [ln.strip() for ln in f if ln.strip()]
+    except Exception:
+        return False
+    for ln in lines[-40:]:
+        log("Update: %s" % ln)
+    try:
+        os.remove(UPDATE_REPORT)      # said once, not on every start from now on
+    except Exception:
+        pass
+    return bool(lines)
 
 
 def tidy_installation():
@@ -835,14 +874,15 @@ def _run(info):
         log("Update to v%s staged. Restarting." % found)
 
         if os.name == "nt":
-            # A window of its own, and a visible one. TrackImage closes for
-            # the swap, so without it there is half a minute where the program
-            # is gone and nothing says why -- which is indistinguishable from a
-            # crash. The helper narrates what it is doing and closes when
-            # TrackImage is back.
-            NEW_CONSOLE = 0x00000010 | 0x00000200  # CREATE_NEW_CONSOLE | NEW_PROCESS_GROUP
+            # Hidden, not detached. Hidden because a second window is one
+            # window too many -- the account of what happened reaches the user
+            # through TrackImage's own console instead, read back from the log
+            # on the next start. Not detached because a detached process has no
+            # console at all, and a console command inside the helper then
+            # quietly refuses to run.
+            NO_WINDOW = 0x08000000 | 0x00000200   # CREATE_NO_WINDOW | NEW_PROCESS_GROUP
             subprocess.Popen(["cmd", "/c", helper], cwd=ROOT_DIR,
-                             creationflags=NEW_CONSOLE, close_fds=True)
+                             creationflags=NO_WINDOW, close_fds=True)
         else:
             subprocess.Popen(["/bin/sh", helper], cwd=ROOT_DIR,
                              start_new_session=True, close_fds=True)
