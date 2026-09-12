@@ -5,6 +5,12 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.62 — 2026-09-12
+
+- The version sits in the README title, and a hint stops overlapping its buttons
+- An update that fails now says so, restarts, and keeps your venv
+- Say in CLAUDE.md that a commit must never spell the skip marker
+
 ## v4.61 — 2026-09-12
 
 - Docs move into one folder, and the update dialog lists what is new
