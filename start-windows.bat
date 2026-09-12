@@ -215,12 +215,22 @@ exit /b
 :: screen for ever, which is exactly what it did. TI_AFTER_UPDATE says which
 :: of the two it is.
 :hold
-if defined TI_AFTER_UPDATE (
-  echo.
-  echo  This window closes on its own in 20 seconds.
-  echo  The same text is in Userdata\Logs\install.log.
-  ping -n 21 127.0.0.1 >nul
-) else (
-  pause
+if not defined TI_AFTER_UPDATE ( pause & goto :eof )
+:: Nobody is in front of this window, so it must close itself -- and it should
+:: close the moment TrackImage is up rather than sitting out a fixed countdown.
+:: Each round asks who holds the port; 0 means this build is answering.
+echo.
+echo  Waiting for TrackImage, then this window closes by itself.
+:: Without the venv there is nothing to ask, and the loop below would spin.
+if not exist "%TIDIR%\venv\Scripts\python.exe" ( ping -n 11 127.0.0.1 >nul & goto :eof )
+set /a HOLD=0
+:holdwait
+"%TIDIR%\venv\Scripts\python.exe" "%TIDIR%\launcher_check.py" wait 2 >nul 2>&1
+if not errorlevel 1 goto :eof
+set /a HOLD+=1
+if %HOLD% GEQ 12 (
+  echo  TrackImage did not answer. The same text is in Userdata\Logs\install.log.
+  ping -n 6 127.0.0.1 >nul
+  goto :eof
 )
-goto :eof
+goto holdwait
