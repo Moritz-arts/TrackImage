@@ -27,6 +27,13 @@ Editing one by hand puts it out of step with the others, and the updater
 compares exactly this number. If a change genuinely must not raise the version,
 put `[skip version]` in the commit message.
 
+**Never write `[skip ci]` in a commit message, not even to talk about it.**
+GitHub reads that marker anywhere in the message and skips the whole run, so a
+commit *describing* the marker silently skips its own version bump — which has
+already happened once, and cost main a version number. In a commit message call
+it "the skip marker" and spell it nowhere. Inside a file like this one it is
+harmless; only commit messages are scanned.
+
 **Never write `docs/CHANGELOG.md` by hand either.** The same workflow prepends an
 entry from the commits since the previous tag — one line per commit, taken from
 the subject. So **the commit subject is the changelog line**: write it as a
