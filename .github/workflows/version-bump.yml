@@ -42,6 +42,7 @@ jobs:
         run: python3 .github/bump_version.py
 
       - name: Write the changelog entry
+        id: notes
         env:
           VER: ${{ steps.bump.outputs.version }}
         run: |
@@ -57,9 +58,13 @@ jobs:
       - name: Commit, tag and push
         env:
           VER: ${{ steps.bump.outputs.version }}
-          # Through the environment, never interpolated into the script: this is
-          # whatever somebody typed in a commit message, quotes and all.
+          # Through the environment, never interpolated into the script: these
+          # are whatever somebody typed in a commit message, quotes and all.
           HEAD_MSG: ${{ github.event.head_commit.message }}
+          # The last real commit of this version. Preferred over HEAD_MSG,
+          # which on a merged pull request is GitHub's "Merge pull request #4
+          # from owner/branch" -- the button that was pressed, not the work.
+          WORK_MSG: ${{ steps.notes.outputs.subject }}
         run: |
           if git diff --quiet; then
             echo "Nothing moved -- no version line, no changelog."
@@ -67,7 +72,8 @@ jobs:
           fi
           # First line, shortened at a word if it is long. A plain cut would stop
           # mid-word, and "the history stays s (v4.60)" reads like a mistake.
-          SUBJECT=${HEAD_MSG%%$'\n'*}
+          SUBJECT=${WORK_MSG:-${HEAD_MSG%%$'\n'*}}
+          SUBJECT=${SUBJECT%%$'\n'*}
           if [ ${#SUBJECT} -gt 64 ]; then
             SUBJECT="${SUBJECT:0:64}"
             SUBJECT="${SUBJECT% *}…"

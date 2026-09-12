@@ -4,19 +4,22 @@ A local image library: a Flask server, a vanilla-JS front end, an SQLite
 database, and no build step anywhere. The repository *is* the program — what
 people download and unpack is these folders, unchanged.
 
-`Trackimage_files/FOLDER_MAP.md` describes the layout in full. Read it before
-moving anything between layers.
+`docs/FOLDER_MAP.md` describes the layout in full. Read it before moving
+anything between layers.
+
+The repository root stays short on purpose — README.md, CLAUDE.md, the three
+launchers, `Trackimage_files/` and `docs/`. Prose that is not the front page
+goes in `docs/`; do not add another file beside the launchers.
 
 ## Versioning — do not do this by hand
 
 **Never edit a version number.** A workflow (`.github/workflows/version-bump.yml`)
-raises it on every push to `main` and rewrites it in all seven places:
+raises it on every push to `main` and rewrites it in all six places:
 
 ```
 Trackimage_files/trackimage/config.py    VERSION = "4.60"   ← the one that counts
 README.md                                **Version 4.60**
 Trackimage_files/app.py                  the title line
-README.txt                               the title line
 start-linux.sh / start-macos.command / start-windows.bat
 ```
 
@@ -24,10 +27,12 @@ Editing one by hand puts it out of step with the others, and the updater
 compares exactly this number. If a change genuinely must not raise the version,
 put `[skip version]` in the commit message.
 
-**Never write `CHANGELOG.md` by hand either.** The same workflow prepends an
+**Never write `docs/CHANGELOG.md` by hand either.** The same workflow prepends an
 entry from the commits since the previous tag — one line per commit, taken from
 the subject. So **the commit subject is the changelog line**: write it as a
-statement about what changed, in English, readable on its own.
+statement about what changed, in English, readable on its own. The bump commit
+is named after the last real commit of the version, so a merge commit's "Merge
+pull request #4 from…" never becomes the title.
 
 ```
 good: Full view: the library beside the picture actually works
@@ -45,7 +50,7 @@ stays with the diff.
 3. The workflow raises the version, writes the changelog line, tags the commit
    (`v4.60`), and pushes. It does **not** publish a release.
 4. When the user judges a version ready, they draft a release from its tag by
-   hand and paste that version's section out of `CHANGELOG.md`.
+   hand and paste that version's section out of `docs/CHANGELOG.md`.
 
 TrackImage offers two channels in Settings › Repair & Update:
 
@@ -71,6 +76,11 @@ Do not create releases or tags yourself, and do not push to `main`.
 - **A tag must sit on a commit that contains the version it names.** v4.58 was
   once tagged over a tree that still said 4.57; the updater refused it, and
   correctly so. The workflow tags its own bump commit for this reason.
+- **An update replaces, it does not merge.** `Trackimage_files/` and `docs/`
+  are swapped whole by the helper in `updater.py`, and a file an older version
+  shipped and this one does not is deleted by name there. Drop a file from the
+  root and it has to be added to that list, or it survives on every machine
+  that updates.
 - **`Userdata/` and `models/` belong to the machine, not the program.** They are
   git-ignored, never travel in an archive, and an update carries them across
   untouched. Nothing may write into them from a release path.

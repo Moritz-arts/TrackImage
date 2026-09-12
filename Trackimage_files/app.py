@@ -9,7 +9,7 @@ layers load in.
 
 The version above is raised automatically on every push to main -- see
 .github/bump_version.py. The history that used to sit here in full is now in
-CHANGELOG.md, written by the same workflow: one place, so the two can never
+docs/CHANGELOG.md, written by the same workflow: one place, so the two can never
 drift apart. Each entry is also that version's release notes on GitHub.
 """
 

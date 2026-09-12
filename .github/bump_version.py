@@ -40,8 +40,6 @@ PLACES = [
      r'^(?P<pre>\*\*Version )(?P<v>[\d.]+)(?=\*\*)'),
     (ROOT / "Trackimage_files" / "app.py",
      r'^(?P<pre>TrackImage v)(?P<v>[\d.]+)(?=[ \t]*\r?$)'),
-    (ROOT / "README.txt",
-     r'^(?P<pre>TrackImage v)(?P<v>[\d.]+)(?=[ \t]*\r?$)'),
     (ROOT / "start-linux.sh",
      r'(?P<pre>TrackImage v)(?P<v>[\d.]+)(?= - Setup)'),
     (ROOT / "start-macos.command",

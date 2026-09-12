@@ -56,6 +56,9 @@ AUTO_CHECK_DEFAULT = False  # a check happens when the button is pressed
 #: tagged anything.
 RAW_VERSION = ("https://raw.githubusercontent.com/%s/%s/%s/"
                "Trackimage_files/trackimage/config.py")
+#: The history, at the same point. An update that skips five versions should
+#: say what all five brought, not only the last one.
+RAW_CHANGELOG = "https://raw.githubusercontent.com/%s/%s/%s/docs/CHANGELOG.md"
 #: What that branch last received -- the message and the date shown with the
 #: offer. Best effort: the update does not depend on it.
 API_COMMIT = "https://api.github.com/repos/%s/%s/commits/%s"
@@ -177,6 +180,53 @@ def _get_text(url):
         return r.read(_MAX_TEXT).decode("utf-8", "replace")
 
 
+#: "## v4.62 — 2026-09-12", the heading changelog_entry.py writes.
+_HEADING_RE = re.compile(r"^##\s+v?([\d][\d.]*)\s*(?:[—\-–]\s*(\S+))?\s*$", re.M)
+
+
+def changelog_between(ref, after, upto):
+    """Every changelog entry newer than `after`, up to and including `upto`.
+
+    An update that skips five versions should say what all five brought. The
+    list is read from the archive's own history file at the same ref that is
+    about to be installed, so it describes exactly what is being offered.
+
+    Returns a list of {version, date, lines}; empty when the file cannot be
+    read, which is never a reason to stop an update.
+    """
+    try:
+        text = _get_text(RAW_CHANGELOG % (GITHUB_OWNER, GITHUB_REPO,
+                                          urllib.parse.quote(ref, safe="")))
+    except Exception:
+        return []
+    out = []
+    marks = list(_HEADING_RE.finditer(text))
+    for i, m in enumerate(marks):
+        ver = m.group(1)
+        if not _newer(ver, after):
+            break            # headings run newest first; everything below is older
+        if upto and _newer(ver, upto):
+            continue         # published after the version being offered
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+        # Entries written before the one-line rule wrap across several lines, so
+        # a bullet runs until the next one begins. Taking only the lines that
+        # start with a dash would cut every one of those off mid-sentence.
+        lines = []
+        for ln in text[m.end():end].splitlines():
+            stripped = ln.strip()
+            if not stripped:
+                continue
+            if stripped[0] in "-*•":
+                lines.append(stripped[1:].strip())
+            elif lines:
+                lines[-1] += " " + stripped
+        out.append({"version": ver, "date": m.group(2) or "",
+                    "lines": lines[:40]})
+        if len(out) >= 25:
+            break
+    return out
+
+
 def _branch_version():
     """The version the branch carries, read out of its config.py."""
     src = _get_text(RAW_VERSION % (GITHUB_OWNER, GITHUB_REPO,
@@ -266,13 +316,17 @@ def check_for_update():
         base["error"] = "Could not reach GitHub: %s" % msg
         return base
 
+    newer = _newer(found["latest"], VERSION)
     out = dict(found)
     out.update({
         "ok": True,
         "current": VERSION,
         "channel": ch,
         "branch": BRANCH,
-        "newer": _newer(found["latest"], VERSION),
+        "newer": newer,
+        # What every version in between brought, not only the newest one.
+        "changes": changelog_between(found.get("tag") or BRANCH, VERSION,
+                                     found["latest"]) if newer else [],
         # GitHub packs these archives on the fly, so their size is not known
         # until the download is running.
         "asset_size": 0,
@@ -417,7 +471,15 @@ if exist "%%ROOT%%\Trackimage_files.bak\models" (
 )
 
 copy /y "%%SRC%%\start-*.*" "%%ROOT%%\" >nul 2>nul
-if exist "%%SRC%%\README.txt" copy /y "%%SRC%%\README.txt" "%%ROOT%%\" >nul 2>nul
+if exist "%%SRC%%\README.md" copy /y "%%SRC%%\README.md" "%%ROOT%%\" >nul 2>nul
+rem docs is replaced whole, never merged: a file dropped from the new version
+rem must not survive in the folder as a leftover of the old one.
+if exist "%%SRC%%\docs" (
+  if exist "%%ROOT%%\docs" rmdir /s /q "%%ROOT%%\docs"
+  move "%%SRC%%\docs" "%%ROOT%%\docs" >nul
+)
+rem Files earlier versions put here and this one no longer ships.
+if exist "%%ROOT%%\README.txt" del /q "%%ROOT%%\README.txt" >nul 2>nul
 
 rmdir /s /q "%%ROOT%%\Trackimage_files.bak"
 rmdir /s /q "%%STAGE%%"
@@ -466,7 +528,15 @@ fi
   mv "$ROOT/Trackimage_files.bak/models" "$ROOT/Trackimage_files/models"
 
 cp -f "$SRC"/start-* "$ROOT/" 2>/dev/null
-[ -f "$SRC/README.txt" ] && cp -f "$SRC/README.txt" "$ROOT/"
+[ -f "$SRC/README.md" ] && cp -f "$SRC/README.md" "$ROOT/"
+# docs is replaced whole, never merged: a file dropped from the new version
+# must not survive in the folder as a leftover of the old one.
+if [ -d "$SRC/docs" ]; then
+  rm -rf "$ROOT/docs"
+  mv "$SRC/docs" "$ROOT/docs"
+fi
+# Files earlier versions put here and this one no longer ships.
+rm -f "$ROOT/README.txt"
 chmod +x "$ROOT"/start-linux.sh "$ROOT"/start-macos.command 2>/dev/null
 
 rm -rf "$ROOT/Trackimage_files.bak" "$STAGE"

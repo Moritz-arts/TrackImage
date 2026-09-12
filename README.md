@@ -1,6 +1,6 @@
 # TrackImage
 
-**Version 4.60** · [what changed](CHANGELOG.md) · [releases](../../releases)
+**Version 4.60** · [what changed](docs/CHANGELOG.md) · [releases](../../releases)
 
 A local danbooru-style image library that never leaves your machine.
 
@@ -47,7 +47,7 @@ Settings › Repair & Update checks this repository and offers two channels:
 
 Both use the same version numbers and the same files — they differ only in which
 commit they point at. The version is raised on every push to `main`, and
-[CHANGELOG.md](CHANGELOG.md) lists what each one brought.
+[docs/CHANGELOG.md](docs/CHANGELOG.md) lists what each one brought.
 
 Whichever channel you pick, the button downloads it, verifies the archive,
 copies your database to
@@ -64,15 +64,17 @@ will.
 ```
 TrackImage/
 ├─ start-windows.bat / start-linux.sh / start-macos.command
+├─ README.md
+├─ docs/           CHANGELOG.md and FOLDER_MAP.md
 └─ Trackimage_files/
-    ├─ app.py, FOLDER_MAP.md
+    ├─ app.py
     ├─ trackimage/   the Python package, 27 layers
     ├─ Static/       index.html, css, js, fonts, icons
     ├─ models/       created on first use, never in an archive
     └─ Userdata/     your database and logs, never touched by an update
 ```
 
-`Trackimage_files/FOLDER_MAP.md` describes it in full.
+`docs/FOLDER_MAP.md` describes it in full.
 
 ## Fonts
 
