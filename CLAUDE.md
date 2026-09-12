@@ -116,11 +116,18 @@ Do not create releases or tags yourself, and do not push to `main`.
   `Trackimage_files/Userdata/Backup`, the last three are kept, and older ones
   are removed. Stray ones from the layout before that are *moved* there at
   start, never deleted — deleting somebody's backup is not a tidy-up.
-- **The update helper runs in a window of its own.** On Windows that rules out
-  `timeout` and `pause` — they refuse to run and the script sails past every
-  wait, or hangs forever on a keypress nobody can give. `ping -n` is the sleep,
-  `echo` is the progress, and every exit path restarts TrackImage — including
-  the ones that failed.
+- **The update helper runs unseen, and reports afterwards.** It cannot show its
+  work as it happens — TrackImage is closed for the swap — so it writes each
+  step to a log, hands that log to `Userdata/Logs/update.log`, and
+  `report_last_update()` reads it into the app's own console on the next start.
+  On Windows `timeout` and `pause` are ruled out: they read from a console and
+  fail or hang wherever there is none. `ping -n` is the sleep, and every exit
+  path restarts TrackImage — including the ones that failed.
+- **Nothing the helper starts may wait for a keypress.** Nobody is sitting in
+  front of a window that opened by itself, so a launcher branch ending in
+  `pause` stays on screen for ever — which is what `:other_instance` and
+  `:no_start` did after an update. The helper exports `TI_AFTER_UPDATE`, and
+  `:hold` in the launchers counts down and closes instead of pausing.
 
 ## House style
 

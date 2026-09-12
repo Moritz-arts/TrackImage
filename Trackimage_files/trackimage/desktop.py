@@ -97,6 +97,15 @@ def main():
     log(f"TrackImage v{VERSION} starting up")
     _log_system_info()
     log("=" * 60)
+    # v4.67: what the update helper did while TrackImage was closed. It cannot
+    # show its work as it happens -- there is no app to show it in -- so it
+    # writes it down and this says it out loud, in the console already on screen
+    # rather than in a second window of its own.
+    try:
+        from .updater import report_last_update
+        report_last_update()
+    except Exception:
+        pass
 
     # v4.54: the log jumped from "everything is ready" straight to "the window is
     # up" with six seconds of silence in between, and no way to tell what had
