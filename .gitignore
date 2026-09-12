@@ -8,6 +8,7 @@ __pycache__/
 # taking them from an archive, and they must never travel with one.
 Trackimage_files/Userdata/
 Trackimage_files/models/
+Trackimage_files/venv/
 
 # What an update stages before the swap.
 _ti_update/

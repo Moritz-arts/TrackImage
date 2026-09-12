@@ -461,26 +461,53 @@ set "ROOT=%(root)s"
 set "STAGE=%(stage)s"
 set "PID=%(pid)s"
 set "SRC=%(src)s"
+set "LOG=%(root)s\TrackImage-update.log"
+>"%%LOG%%" echo TrackImage update: waiting for the app to close
 
+rem ping is the sleep here, not timeout. This script runs without a console of
+rem its own, and timeout refuses to run without one -- it failed instantly, so
+rem every wait below was no wait at all, and the swap was attempted in the same
+rem breath as the app exiting.
 :wait
 tasklist /FI "PID eq %%PID%%" 2>nul | find "%%PID%%" >nul
 if not errorlevel 1 (
-  timeout /t 1 /nobreak >nul
+  ping -n 2 127.0.0.1 >nul
   goto wait
 )
-timeout /t 2 /nobreak >nul
+rem Windows lets go of a process's files a moment after it is gone, and one of
+rem those files is the venv's own python.exe, inside the folder being moved.
+ping -n 4 127.0.0.1 >nul
 
 if exist "%%ROOT%%\Trackimage_files.bak" rmdir /s /q "%%ROOT%%\Trackimage_files.bak"
-move "%%ROOT%%\Trackimage_files" "%%ROOT%%\Trackimage_files.bak" >nul
-if errorlevel 1 goto giveup
 
-move "%%SRC%%\Trackimage_files" "%%ROOT%%\Trackimage_files" >nul
+rem A handle held a second longer -- a virus scanner reading the folder, an
+rem explorer window open in it -- is a reason to wait, not to abandon the
+rem update. Half a minute of trying, then the previous version stays.
+set /a TRY=0
+:trymove
+move "%%ROOT%%\Trackimage_files" "%%ROOT%%\Trackimage_files.bak" >nul 2>&1
+if not errorlevel 1 goto moved
+set /a TRY+=1
+>>"%%LOG%%" echo could not move Trackimage_files aside (attempt %%TRY%%)
+if %%TRY%% GEQ 30 goto giveup
+ping -n 2 127.0.0.1 >nul
+goto trymove
+:moved
+
+move "%%SRC%%\Trackimage_files" "%%ROOT%%\Trackimage_files" >nul 2>&1
 if errorlevel 1 goto rollback
 
-move "%%ROOT%%\Trackimage_files.bak\Userdata" "%%ROOT%%\Trackimage_files\Userdata" >nul
+rem This machine's own things, carried across rather than taken from the
+rem archive: the database, the tagging model, and the Python environment the
+rem launcher built. That environment is gigabytes and minutes of pip -- losing
+rem it on every update would mean losing auto-tagging on every update.
+move "%%ROOT%%\Trackimage_files.bak\Userdata" "%%ROOT%%\Trackimage_files\Userdata" >nul 2>&1
 if errorlevel 1 goto rollback
 if exist "%%ROOT%%\Trackimage_files.bak\models" (
-  move "%%ROOT%%\Trackimage_files.bak\models" "%%ROOT%%\Trackimage_files\models" >nul
+  move "%%ROOT%%\Trackimage_files.bak\models" "%%ROOT%%\Trackimage_files\models" >nul 2>&1
+)
+if exist "%%ROOT%%\Trackimage_files.bak\venv" (
+  move "%%ROOT%%\Trackimage_files.bak\venv" "%%ROOT%%\Trackimage_files\venv" >nul 2>&1
 )
 
 copy /y "%%SRC%%\start-*.*" "%%ROOT%%\" >nul 2>nul
@@ -489,25 +516,29 @@ rem docs is replaced whole, never merged: a file dropped from the new version
 rem must not survive in the folder as a leftover of the old one.
 if exist "%%SRC%%\docs" (
   if exist "%%ROOT%%\docs" rmdir /s /q "%%ROOT%%\docs"
-  move "%%SRC%%\docs" "%%ROOT%%\docs" >nul
+  move "%%SRC%%\docs" "%%ROOT%%\docs" >nul 2>&1
 )
 rem Files earlier versions put here and this one no longer ships.
 if exist "%%ROOT%%\README.txt" del /q "%%ROOT%%\README.txt" >nul 2>nul
 
-rmdir /s /q "%%ROOT%%\Trackimage_files.bak"
-rmdir /s /q "%%STAGE%%"
+rmdir /s /q "%%ROOT%%\Trackimage_files.bak" >nul 2>&1
+rmdir /s /q "%%STAGE%%" >nul 2>&1
+del /q "%%LOG%%" >nul 2>&1
 start "" "%%ROOT%%\start-windows.bat"
 exit /b 0
 
 :rollback
+>>"%%LOG%%" echo the swap failed -- putting the previous version back
 if exist "%%ROOT%%\Trackimage_files" rmdir /s /q "%%ROOT%%\Trackimage_files"
-move "%%ROOT%%\Trackimage_files.bak" "%%ROOT%%\Trackimage_files" >nul
+move "%%ROOT%%\Trackimage_files.bak" "%%ROOT%%\Trackimage_files" >nul 2>&1
 :giveup
-echo.
-echo   The update could not be installed. The previous version was put back.
-echo   Nothing in Userdata was touched.
-echo.
-pause
+>>"%%LOG%%" echo the update was not installed. The previous version is in place
+>>"%%LOG%%" echo and nothing in Userdata was touched.
+rem No pause here. There is no console to read a key from, so waiting for one
+rem is how an update used to end with TrackImage simply never coming back.
+rem The staging folder goes either way -- leaving _ti_update behind told the
+rem user something had broken without saying what.
+rmdir /s /q "%%STAGE%%" >nul 2>&1
 start "" "%%ROOT%%\start-windows.bat"
 exit /b 1
 """
@@ -517,28 +548,56 @@ ROOT='%(root)s'
 STAGE='%(stage)s'
 SRC='%(src)s'
 PID=%(pid)s
+LOG="%(root)s/TrackImage-update.log"
+
+# However this ends, TrackImage comes back. An update that fails and leaves the
+# user staring at a closed window is worse than one that never started: the
+# previous version is still there and perfectly able to run.
+restart() {
+  rm -rf "$STAGE"
+  chmod +x "$ROOT"/start-linux.sh "$ROOT"/start-macos.command 2>/dev/null
+  if [ -x "$ROOT/start-macos.command" ] && [ "$(uname)" = "Darwin" ]; then
+    open "$ROOT/start-macos.command"
+  else
+    "$ROOT/start-linux.sh" &
+  fi
+}
+
+give_up() {
+  echo "$1" >> "$LOG"
+  restart
+  exit 1
+}
+
+put_back() {
+  rm -rf "$ROOT/Trackimage_files"
+  mv "$ROOT/Trackimage_files.bak" "$ROOT/Trackimage_files"
+  give_up "The update could not be installed. The previous version was put back."
+}
 
 while kill -0 "$PID" 2>/dev/null; do sleep 1; done
 sleep 2
 
 rm -rf "$ROOT/Trackimage_files.bak"
-mv "$ROOT/Trackimage_files" "$ROOT/Trackimage_files.bak" || exit 1
 
-if ! mv "$SRC/Trackimage_files" "$ROOT/Trackimage_files"; then
-  rm -rf "$ROOT/Trackimage_files"
-  mv "$ROOT/Trackimage_files.bak" "$ROOT/Trackimage_files"
-  echo "The update could not be installed. The previous version was put back."
-  exit 1
-fi
+# Something holding the folder a second longer is a reason to wait, not to
+# abandon the update. Half a minute of trying, then the previous version stays.
+TRY=0
+until mv "$ROOT/Trackimage_files" "$ROOT/Trackimage_files.bak" 2>/dev/null; do
+  TRY=$((TRY + 1))
+  [ "$TRY" -ge 30 ] && give_up "The update could not be installed. Nothing was changed."
+  sleep 1
+done
 
-if ! mv "$ROOT/Trackimage_files.bak/Userdata" "$ROOT/Trackimage_files/Userdata"; then
-  rm -rf "$ROOT/Trackimage_files"
-  mv "$ROOT/Trackimage_files.bak" "$ROOT/Trackimage_files"
-  echo "The update could not be installed. The previous version was put back."
-  exit 1
-fi
+mv "$SRC/Trackimage_files" "$ROOT/Trackimage_files" 2>/dev/null || put_back
+mv "$ROOT/Trackimage_files.bak/Userdata" "$ROOT/Trackimage_files/Userdata" 2>/dev/null || put_back
+# This machine's own things, carried across rather than taken from the archive:
+# the tagging model, and the Python environment the launcher built. Rebuilding
+# that environment means minutes of pip and a lost auto-tagging runtime.
 [ -d "$ROOT/Trackimage_files.bak/models" ] && \
   mv "$ROOT/Trackimage_files.bak/models" "$ROOT/Trackimage_files/models"
+[ -d "$ROOT/Trackimage_files.bak/venv" ] && \
+  mv "$ROOT/Trackimage_files.bak/venv" "$ROOT/Trackimage_files/venv"
 
 cp -f "$SRC"/start-* "$ROOT/" 2>/dev/null
 [ -f "$SRC/README.md" ] && cp -f "$SRC/README.md" "$ROOT/"
@@ -550,15 +609,10 @@ if [ -d "$SRC/docs" ]; then
 fi
 # Files earlier versions put here and this one no longer ships.
 rm -f "$ROOT/README.txt"
-chmod +x "$ROOT"/start-linux.sh "$ROOT"/start-macos.command 2>/dev/null
 
-rm -rf "$ROOT/Trackimage_files.bak" "$STAGE"
-
-if [ -x "$ROOT/start-macos.command" ] && [ "$(uname)" = "Darwin" ]; then
-  open "$ROOT/start-macos.command"
-else
-  "$ROOT/start-linux.sh" &
-fi
+rm -rf "$ROOT/Trackimage_files.bak"
+rm -f "$LOG"
+restart
 exit 0
 """
 
@@ -614,7 +668,7 @@ def _run(info):
                 # over by the helper, never taken from the archive.
                 head = rel.split("/")
                 if len(head) > 1 and head[0] == "Trackimage_files" and \
-                        len(head) > 2 and head[1] in ("Userdata", "models"):
+                        len(head) > 2 and head[1] in ("Userdata", "models", "venv"):
                     continue
                 target = os.path.join(src_dir, *rel.split("/"))
                 os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -628,9 +682,14 @@ def _run(info):
         log("Update to v%s staged. Restarting." % found)
 
         if os.name == "nt":
-            DETACHED = 0x00000008 | 0x00000200   # DETACHED_PROCESS | NEW_PROCESS_GROUP
+            # CREATE_NO_WINDOW, not DETACHED_PROCESS: the helper still runs
+            # unseen, but it has a console, so a console command inside it
+            # behaves. Detached, it had none -- and timeout quietly refused to
+            # wait, which is how a swap came to be attempted before the app had
+            # let go of its own files.
+            NO_WINDOW = 0x08000000 | 0x00000200   # CREATE_NO_WINDOW | NEW_PROCESS_GROUP
             subprocess.Popen(["cmd", "/c", helper], cwd=ROOT_DIR,
-                             creationflags=DETACHED, close_fds=True)
+                             creationflags=NO_WINDOW, close_fds=True)
         else:
             subprocess.Popen(["/bin/sh", helper], cwd=ROOT_DIR,
                              start_new_session=True, close_fds=True)
