@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.64 — 2026-09-12
+
+- An update leaves nothing behind, and stale files go on the next start
+
 ## v4.63 — 2026-09-12
 
 - The workshop files stay out of what people download

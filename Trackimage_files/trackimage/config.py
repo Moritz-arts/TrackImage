@@ -13,7 +13,7 @@ import sys
 from . import state
 
 
-VERSION = "4.63"
+VERSION = "4.64"
 
 
 state.WINDOW_MODE = False   # v4.10: set when the app runs in its own window
