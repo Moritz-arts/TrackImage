@@ -508,7 +508,7 @@ function updateCardHtml(){
    +'<div class="proc-hint" id="upd-ch-hint">'+channelHintHtml()+'</div>'
    +'<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
    +'<button class="btn btn-sm btn-primary" id="upd-btn" onclick="checkUpdates()">Search for updates</button>'
-   +'<a class="btn btn-sm" href="https://github.com/Moritz-arts/TrackImage/blob/main/CHANGELOG.md" target="_blank" rel="noopener">What changed</a>'
+   +'<a class="btn btn-sm" href="https://github.com/Moritz-arts/TrackImage/blob/main/docs/CHANGELOG.md" target="_blank" rel="noopener">What changed</a>'
    +'</div>'
    +'<div id="upd-result" style="margin-top:14px"></div>'
    +'<div class="proc-row" style="margin-top:16px"><label>Check automatically at start</label>'
@@ -540,6 +540,27 @@ function _redrawChannel(){
 
 function _updFmtMB(n){return (n/1048576).toFixed(1)+' MB';}
 
+/* Everything between the installed version and the one on offer -- one block
+   per version, the way the changelog lists it. An update that skips five
+   versions should say what all five brought, not only the newest. Falls back to
+   whatever the channel gave as notes when the history could not be read. */
+function changesHtml(r){
+  var ch=r.changes||[];
+  if(!ch.length)return esc(r.notes||'').replace(/\n/g,'<br>');
+  var h='';
+  if(ch.length>1)h+='<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">'+ch.length+' versions since v'+esc(r.current)+'</div>';
+  ch.forEach(function(v){
+    h+='<div style="margin-bottom:10px"><div style="font-family:\'Space Mono\',monospace;font-size:12px;color:var(--accent-light)">v'+esc(v.version)+(v.date?(' \u00b7 '+esc(v.date)):'')+'</div>';
+    if(v.lines&&v.lines.length){
+      h+='<ul style="margin:4px 0 0;padding-left:18px">';
+      v.lines.forEach(function(l){h+='<li style="margin:2px 0">'+esc(l)+'</li>';});
+      h+='</ul>';
+    }
+    h+='</div>';
+  });
+  return h;
+}
+
 async function checkUpdates(){
   var btn=document.getElementById('upd-btn'),out=document.getElementById('upd-result');
   if(!out)return;
@@ -556,7 +577,7 @@ async function checkUpdates(){
     out.innerHTML='<div class="proc-hint" style="color:var(--success)">\u2713 v'+esc(r.current)+' \u2014 nothing newer on '+(r.channel==='latest'?('the '+esc(r.branch||'main')+' branch'):'the stable channel')+'.</div>';
     return;
   }
-  var notes=esc(r.notes||'').replace(/\n/g,'<br>');
+  var notes=changesHtml(r);
   out.innerHTML='<div class="proc-how"><div class="sec-title">'+esc(r.name||('v'+r.latest))
    +(r.published?(' \u00b7 '+esc(r.published)):'')+'</div><div class="proc-how-body">'
    +'<p style="margin:0 0 8px"><b>v'+esc(r.latest)+'</b> is available \u2014 you have v'+esc(r.current)+'.</p>'

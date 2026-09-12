@@ -14,6 +14,7 @@ by a list you can read in ten seconds and paste into a release or a forum post.
 Called as: changelog_entry.py <new-version>
 Prints the entry body on stdout.
 """
+import os
 import pathlib
 import re
 import subprocess
@@ -21,11 +22,16 @@ import sys
 from datetime import date
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CHANGELOG = ROOT / "CHANGELOG.md"
+CHANGELOG = ROOT / "docs" / "CHANGELOG.md"
 
 #: The workflow's own commits. They say nothing a reader wants and would
 #: otherwise open every entry with the number the entry is already titled with.
 _BUMP = re.compile(r"^v[\d.]+(\s*\[skip ci\])?$")
+
+#: What GitHub writes when a button is pressed. `git log --no-merges` drops a
+#: real merge commit, but a squash merge is an ordinary commit carrying the same
+#: sentence, and that sentence names the button, not the work.
+_MERGE = re.compile(r"^Merge (pull request|branch|remote-tracking)\b", re.I)
 
 
 
@@ -57,7 +63,7 @@ def commits_since(tag):
             continue
         subject, _, body = chunk.partition("\x01")
         subject = subject.strip()
-        if not subject or _BUMP.match(subject):
+        if not subject or _BUMP.match(subject) or _MERGE.match(subject):
             continue
         out.append((subject, body.strip()))
     return out
@@ -87,6 +93,7 @@ def entry_body(tag):
 def prepend(version, body):
     """Put the entry directly under the file's heading, newest first."""
     heading = "## v%s — %s" % (version, date.today().isoformat())
+    CHANGELOG.parent.mkdir(parents=True, exist_ok=True)
     text = CHANGELOG.read_text(encoding="utf-8") if CHANGELOG.is_file() else \
         "# TrackImage — version history\n"
     if ("## v%s " % version) in text or text.rstrip().endswith("## v%s" % version):
@@ -105,9 +112,18 @@ def main():
     if len(sys.argv) < 2:
         sys.exit("usage: changelog_entry.py <new-version>")
     version = sys.argv[1].lstrip("vV")
+    commits = commits_since(previous_tag())
     body = entry_body(previous_tag())
     prepend(version, body)
     print(body)
+    # The last real commit of this version, for the bump commit to be named
+    # after. What GitHub writes when a pull request is merged -- "Merge pull
+    # request #4 from owner/branch" -- describes the button that was pressed
+    # and not the work, so the commit that did the work names it instead.
+    out_file = os.environ.get("GITHUB_OUTPUT")
+    if out_file and commits:
+        with open(out_file, "a", encoding="utf-8") as f:
+            f.write("subject=%s\n" % commits[-1][0].replace("\n", " "))
 
 
 if __name__ == "__main__":

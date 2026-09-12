@@ -12,7 +12,6 @@ TrackImage_v4.57/                 <- what the ZIP unpacks to
 └─ Trackimage_files/
     ├─ app.py                     entry point; the changelog header lives here
     ├─ launcher_check.py          readiness probe the launchers call
-    ├─ FOLDER_MAP.md              this file
     │
     ├─ trackimage/                Python package, 27 layers, order fixed in __init__.py
     │   ├─ __init__.py            the load order — read this first
