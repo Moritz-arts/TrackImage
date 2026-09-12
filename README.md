@@ -74,7 +74,9 @@ TrackImage/
     └─ Userdata/     your database and logs, never touched by an update
 ```
 
-`docs/FOLDER_MAP.md` describes it in full.
+`docs/FOLDER_MAP.md` describes it in full. The repository also holds the
+automation and the notes for whoever works on TrackImage; those are kept out of
+the archive, so what you unpack is the program and nothing else.
 
 ## Fonts
 

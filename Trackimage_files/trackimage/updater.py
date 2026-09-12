@@ -518,8 +518,14 @@ if exist "%%SRC%%\docs" (
   if exist "%%ROOT%%\docs" rmdir /s /q "%%ROOT%%\docs"
   move "%%SRC%%\docs" "%%ROOT%%\docs" >nul 2>&1
 )
-rem Files earlier versions put here and this one no longer ships.
+rem What earlier versions put here and this one no longer ships. The archive
+rem stopped carrying the workshop files (see .gitattributes), so an install made
+rem before that still has them and would keep them for ever.
 if exist "%%ROOT%%\README.txt" del /q "%%ROOT%%\README.txt" >nul 2>nul
+if exist "%%ROOT%%\CLAUDE.md" del /q "%%ROOT%%\CLAUDE.md" >nul 2>nul
+if exist "%%ROOT%%\.gitignore" del /q "%%ROOT%%\.gitignore" >nul 2>nul
+if exist "%%ROOT%%\.gitattributes" del /q "%%ROOT%%\.gitattributes" >nul 2>nul
+if exist "%%ROOT%%\.github" rmdir /s /q "%%ROOT%%\.github" >nul 2>nul
 
 rmdir /s /q "%%ROOT%%\Trackimage_files.bak" >nul 2>&1
 rmdir /s /q "%%STAGE%%" >nul 2>&1
@@ -607,8 +613,11 @@ if [ -d "$SRC/docs" ]; then
   rm -rf "$ROOT/docs"
   mv "$SRC/docs" "$ROOT/docs"
 fi
-# Files earlier versions put here and this one no longer ships.
-rm -f "$ROOT/README.txt"
+# What earlier versions put here and this one no longer ships. The archive
+# stopped carrying the workshop files (see .gitattributes), so an install made
+# before that still has them and would keep them for ever.
+rm -f "$ROOT/README.txt" "$ROOT/CLAUDE.md" "$ROOT/.gitignore" "$ROOT/.gitattributes"
+rm -rf "$ROOT/.github"
 
 rm -rf "$ROOT/Trackimage_files.bak"
 rm -f "$LOG"
