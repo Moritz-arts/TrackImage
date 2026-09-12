@@ -38,6 +38,7 @@ function catBusy(cat){var p=S._proc||{},t=S._tag||{},dl=(t.model_download||{});
 if(cat==='proc')return ((p.pending||0)>0)||((p.active||0)>0)||
     !!(p.scan&&p.scan.active)||!!(p.unlink&&p.unlink.active)||
     !!(p.thumbs&&p.thumbs.active)||!!(p.pairs&&p.pairs.active);
+if(cat==='repair')return updBusy();
 if(cat==='data')return false;
 if(cat==='tag')return !!dl.active||((t.active||0)>0)||(!!t.running&&(t.total||0)>(t.done||0));
 return false;}
@@ -189,9 +190,14 @@ function wLabel(n){var t=cpuTotal();var pct=t?Math.round(n/t*100):0;
    the machine. Both numbers, always. */
 return '('+n+') \u00b7 '+pct+'%';}
 
+/* An update is work like any other: while one runs the indicator turns, the bar
+   above the settings names the phase, and the Repair & Update tab carries its
+   own dot. S._updPhase is set by the status poll below. */
+function updBusy(){var f=S._updPhase;return !!(f&&f!=='idle'&&f!=='failed');}
+
 function workBusy(){
     var p=S._proc||{},t=S._tag||{},dl=(t.model_download||{});
-    return !!(p.running||((p.pending||0)>0)||((p.active||0)>0)
+    return !!(updBusy()||p.running||((p.pending||0)>0)||((p.active||0)>0)
         ||(p.scan&&p.scan.active)||(p.unlink&&p.unlink.active)
         ||(p.thumbs&&p.thumbs.active)||(p.pairs&&p.pairs.active)
         ||t.running||((t.active||0)>0)||dl.active);
@@ -205,8 +211,12 @@ function updateWorkSpinner(){
                      :'TrackImage is idle';}
 }
 
+var UPD_WORDS={downloading:'Downloading the new version',verifying:'Checking the archive',
+  'backing-up':'Backing up the database',staging:'Unpacking',ready:'Restarting'};
+
 function workLabel(){
     var p=S._proc||{},t=S._tag||{},dl=(t.model_download||{});
+    if(updBusy())return (UPD_WORDS[S._updPhase]||'Updating')+'\u2026';
     if(p.unlink&&p.unlink.active)return 'Unlinking a folder\u2026';
     if(p.scan&&p.scan.active)return 'Scanning a folder\u2026';
     if(dl.active)return 'Downloading the auto-tagging model\u2026';
@@ -616,10 +626,15 @@ function pollUpdate(){
   _updTimer=setInterval(async function(){
     var st={};
     try{st=await api('/api/update/status');}catch(e){return;}
+    S._updPhase=st.phase;updateWorkSpinner();refreshSetNav();
+    /* Leaving the page must not stop the watch: the indicator is driven from
+       here, and an interval cleared because a div went away would leave it
+       turning for ever. It stops when the update does, not when the user looks
+       somewhere else. */
+    if(!updBusy())clearInterval(_updTimer);
     var p=document.getElementById('upd-prog');
-    if(!p){clearInterval(_updTimer);return;}
+    if(!p)return;
     if(st.phase==='failed'){
-      clearInterval(_updTimer);
       p.innerHTML='<div class="proc-hint" style="color:var(--danger)">'+esc(st.error||'The update failed.')
         +'<br>Nothing was changed \u2014 the installation is untouched.</div>';
       return;
@@ -630,7 +645,6 @@ function pollUpdate(){
     p.innerHTML='<div class="proc-phase"><div class="proc-phase-label">'+esc(label)
       +(st.detail?(' <span style="font-weight:400;color:var(--text-muted)">'+esc(st.detail)+'</span>'):'')
       +'</div><div class="proc-bar"><div class="proc-bar-fill" style="width:'+(st.pct||0)+'%"></div></div></div>';
-    if(st.phase==='ready')clearInterval(_updTimer);
   },700);
 }
 

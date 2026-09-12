@@ -132,8 +132,20 @@ def set_auto_check(on):
     return bool(on)
 
 
+#: What each phase is called where a person reads it.
+_PHASE_WORDS = {
+    "downloading": "downloading the new version",
+    "verifying":   "checking the archive",
+    "backing-up":  "backing up the database",
+    "staging":     "unpacking",
+    "ready":       "restarting",
+    "failed":      "failed",
+}
+
+
 def _set(phase, pct=None, detail=None, error=None):
     with _lock:
+        moved = (_state["phase"] != phase)
         _state["phase"] = phase
         if pct is not None:
             _state["pct"] = int(pct)
@@ -141,6 +153,15 @@ def _set(phase, pct=None, detail=None, error=None):
             _state["detail"] = detail
         if error is not None:
             _state["error"] = error
+        said = _state["detail"]
+    # Each phase, once, in the console TrackImage already has open -- the bar in
+    # Settings says how far along it is, and this says what it is doing. Outside
+    # the lock: log() has a lock of its own and nothing good comes of nesting
+    # two of them.
+    if moved:
+        word = _PHASE_WORDS.get(phase, phase)
+        log("Update: %s%s" % (word, (" (%s)" % said) if said else ""),
+            "error" if phase == "failed" else "info")
 
 
 def status():
@@ -574,11 +595,12 @@ call :step "[5/5] Starting TrackImage"
 rmdir /s /q "%%ROOT%%\Trackimage_files.bak" >nul 2>&1
 rmdir /s /q "%%STAGE%%" >nul 2>&1
 call :handover
+call :nameroot
 rem TI_AFTER_UPDATE tells the launcher not to wait for a keypress if it has
 rem something to report: nobody is sitting in front of that window, and one that
 rem waits for a key nobody presses stays on screen for ever.
 set "TI_AFTER_UPDATE=1"
-start "" "%%ROOT%%\start-windows.bat"
+start "" "%%NEWROOT%%\start-windows.bat"
 rem Nothing is left of the update: this script is the last piece, and it goes
 rem too. (goto) with no label ends the batch while the & chain still runs, which
 rem is the only way a batch file can remove itself.
@@ -593,12 +615,29 @@ move "%%ROOT%%\Trackimage_files.bak" "%%ROOT%%\Trackimage_files" >nul 2>&1
 call :step "The update was not installed. The previous version is in place and nothing in Userdata was touched."
 rmdir /s /q "%%STAGE%%" >nul 2>&1
 call :handover
+set "NEWROOT=%%ROOT%%"
 set "TI_AFTER_UPDATE=1"
-start "" "%%ROOT%%\start-windows.bat"
+start "" "%%NEWROOT%%\start-windows.bat"
 (goto) 2>nul & del /q "%%~f0"
 exit /b 1
 
 rem --- helpers -------------------------------------------------------------
+:nameroot
+rem The folder carries the version it holds, so "which one is installed" is
+rem answered by looking at it. Only a folder that is plainly ours is renamed --
+rem anything the user named themselves is left exactly as they named it -- and a
+rem rename that does not work changes nothing: NEWROOT simply stays where it was.
+set "NEWROOT=%%ROOT%%"
+for %%%%I in ("%%ROOT%%") do set "PARENT=%%%%~dpI" & set "LEAF=%%%%~nxI"
+echo %%LEAF%% | findstr /I /B /C:"TrackImage" >nul || goto :eof
+set "WANT=TrackImage-v%(newver)s"
+if /I "%%LEAF%%"=="%%WANT%%" goto :eof
+if exist "%%PARENT%%%%WANT%%" goto :eof
+move "%%ROOT%%" "%%PARENT%%%%WANT%%" >nul 2>&1 || goto :eof
+set "NEWROOT=%%PARENT%%%%WANT%%"
+>>"%%LOG%%" echo Folder renamed to %%WANT%%
+goto :eof
+
 :step
 echo   %%~1
 >>"%%LOG%%" echo %%~1
@@ -619,17 +658,37 @@ STAGE='%(stage)s'
 SRC='%(src)s'
 PID=%(pid)s
 LOG="%(log)s"
-REPORT="%(root)s/Trackimage_files/Userdata/Logs/update.log"
 
 # Every step is written down rather than shown: the swap happens while
 # TrackImage is closed, so the version that comes up reads this back into the
 # console the user already has open.
 say() { echo "$1"; echo "$1" >> "$LOG"; }
 
-# The account of what happened goes where TrackImage keeps its logs.
+# Where the launcher is started from at the end. It moves only if the folder is
+# renamed below; every other path leaves it exactly where it was.
+NEWROOT="$ROOT"
+
+# The folder carries the version it holds, so "which one is installed" is
+# answered by looking at it. Only a folder that is plainly ours is renamed --
+# anything the user named themselves is left as they named it -- and a rename
+# that does not work changes nothing.
+name_root() {
+  parent=$(dirname "$ROOT"); leaf=$(basename "$ROOT")
+  echo "$leaf" | grep -qi '^trackimage' || return 0
+  want="TrackImage-v%(newver)s"
+  [ "$leaf" = "$want" ] && return 0
+  [ -e "$parent/$want" ] && return 0
+  mv "$ROOT" "$parent/$want" 2>/dev/null || return 0
+  NEWROOT="$parent/$want"
+  echo "Folder renamed to $want" >> "$LOG"
+}
+
+# The account of what happened goes where TrackImage keeps its logs -- under
+# NEWROOT, not ROOT. After a rename ROOT no longer exists, and mkdir -p would
+# helpfully build an empty shell of the old folder right back.
 handover() {
-  mkdir -p "$ROOT/Trackimage_files/Userdata/Logs" 2>/dev/null
-  cp -f "$LOG" "$REPORT" 2>/dev/null
+  mkdir -p "$NEWROOT/Trackimage_files/Userdata/Logs" 2>/dev/null
+  cp -f "$LOG" "$NEWROOT/Trackimage_files/Userdata/Logs/update.log" 2>/dev/null
   rm -f "$LOG"
 }
 
@@ -646,11 +705,11 @@ restart() {
   # Nobody is sitting in front of the window the launcher may open, so it must
   # not wait for a keypress.
   export TI_AFTER_UPDATE=1
-  chmod +x "$ROOT"/start-linux.sh "$ROOT"/start-macos.command 2>/dev/null
-  if [ -x "$ROOT/start-macos.command" ] && [ "$(uname)" = "Darwin" ]; then
-    open "$ROOT/start-macos.command"
+  chmod +x "$NEWROOT"/start-linux.sh "$NEWROOT"/start-macos.command 2>/dev/null
+  if [ -x "$NEWROOT/start-macos.command" ] && [ "$(uname)" = "Darwin" ]; then
+    open "$NEWROOT/start-macos.command"
   else
-    "$ROOT/start-linux.sh" &
+    "$NEWROOT/start-linux.sh" &
   fi
 }
 
@@ -705,6 +764,7 @@ rm -rf "$ROOT/.github" "$ROOT/docs"
 
 say "[5/5] Starting TrackImage"
 rm -rf "$ROOT/Trackimage_files.bak"
+name_root
 restart
 exit 0
 """
@@ -796,7 +856,7 @@ def tidy_installation():
     return removed
 
 
-def _write_helper(src_dir):
+def _write_helper(src_dir, new_version=None):
     """The script that does the swap once this process is gone.
 
     It lives in the system temp folder, NOT in the staging folder it deletes.
@@ -809,7 +869,8 @@ def _write_helper(src_dir):
     log_path = os.path.join(tempfile.gettempdir(),
                             "trackimage-update-%d.log" % os.getpid())
     subs = {"root": ROOT_DIR, "stage": STAGE_DIR, "src": src_dir,
-            "pid": os.getpid(), "log": log_path}
+            "pid": os.getpid(), "log": log_path,
+            "newver": new_version or VERSION}
     if os.name == "nt":
         path = os.path.join(tempfile.gettempdir(),
                             "trackimage-apply-%d.bat" % os.getpid())
@@ -869,7 +930,7 @@ def _run(info):
         if not os.path.isdir(os.path.join(src_dir, "Trackimage_files")):
             raise RuntimeError("Unpacking produced no Trackimage_files folder.")
 
-        helper = _write_helper(src_dir)
+        helper = _write_helper(src_dir, found)
         _set("ready", 100, "restarting into %s" % found)
         log("Update to v%s staged. Restarting." % found)
 
@@ -881,10 +942,10 @@ def _run(info):
             # console at all, and a console command inside the helper then
             # quietly refuses to run.
             NO_WINDOW = 0x08000000 | 0x00000200   # CREATE_NO_WINDOW | NEW_PROCESS_GROUP
-            subprocess.Popen(["cmd", "/c", helper], cwd=ROOT_DIR,
+            subprocess.Popen(["cmd", "/c", helper], cwd=tempfile.gettempdir(),
                              creationflags=NO_WINDOW, close_fds=True)
         else:
-            subprocess.Popen(["/bin/sh", helper], cwd=ROOT_DIR,
+            subprocess.Popen(["/bin/sh", helper], cwd=tempfile.gettempdir(),
                              start_new_session=True, close_fds=True)
 
         def _bye():
