@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write the new version's entry into CHANGELOG.md, from the commits behind it.
+"""Write the new version's entry into docs/CHANGELOG.md, from the commits behind it.
 
 "What happened between v4.59 and v4.73" is a question the repository can always
 answer -- the commits are right there -- but only if somebody writes it down
@@ -22,7 +22,7 @@ import sys
 from datetime import date
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CHANGELOG = ROOT / "docs" / "CHANGELOG.md"
+CHANGELOG = ROOT / "Trackimage_files" / "docs" / "CHANGELOG.md"
 
 #: The workflow's own commits. They say nothing a reader wants and would
 #: otherwise open every entry with the number the entry is already titled with.

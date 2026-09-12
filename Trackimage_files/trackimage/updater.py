@@ -59,7 +59,12 @@ RAW_VERSION = ("https://raw.githubusercontent.com/%s/%s/%s/"
                "Trackimage_files/trackimage/config.py")
 #: The history, at the same point. An update that skips five versions should
 #: say what all five brought, not only the last one.
-RAW_CHANGELOG = "https://raw.githubusercontent.com/%s/%s/%s/docs/CHANGELOG.md"
+#: Both places it has lived. A version reads the history of the version it is
+#: about to install, and the two need not agree on where that file sits -- an
+#: update across the move would otherwise show nothing at all.
+RAW_CHANGELOG = ("https://raw.githubusercontent.com/%s/%s/%s/"
+                 "Trackimage_files/docs/CHANGELOG.md")
+RAW_CHANGELOG_OLD = "https://raw.githubusercontent.com/%s/%s/%s/docs/CHANGELOG.md"
 #: What that branch last received -- the message and the date shown with the
 #: offer. Best effort: the update does not depend on it.
 API_COMMIT = "https://api.github.com/repos/%s/%s/commits/%s"
@@ -208,10 +213,15 @@ def changelog_between(ref, after, upto):
     Returns a list of {version, date, lines}; empty when the file cannot be
     read, which is never a reason to stop an update.
     """
-    try:
-        text = _get_text(RAW_CHANGELOG % (GITHUB_OWNER, GITHUB_REPO,
-                                          urllib.parse.quote(ref, safe="")))
-    except Exception:
+    text = None
+    for url in (RAW_CHANGELOG, RAW_CHANGELOG_OLD):
+        try:
+            text = _get_text(url % (GITHUB_OWNER, GITHUB_REPO,
+                                    urllib.parse.quote(ref, safe="")))
+            break
+        except Exception:
+            continue
+    if text is None:
         return []
     out = []
     marks = list(_HEADING_RE.finditer(text))
@@ -432,14 +442,40 @@ def _verify(zip_path, expect_version=None):
         return found, prefix
 
 
+#: Where the backups live: with the rest of this machine's own things, which an
+#: update carries across untouched. They used to sit beside the launchers, where
+#: they were the one piece of clutter nobody had asked for.
+BACKUP_DIR = os.path.join(USERDATA_DIR, "Backup")
+#: How many to keep. Each one holds the whole database, so a library of any size
+#: makes these big; the last few are a safety net, the ones before that are just
+#: disk.
+BACKUP_KEEP = 3
+
+
+def _prune_backups():
+    try:
+        old = sorted((f for f in os.listdir(BACKUP_DIR)
+                      if f.startswith("Userdata-backup-") and f.endswith(".zip")),
+                     key=lambda f: os.path.getmtime(os.path.join(BACKUP_DIR, f)))
+    except Exception:
+        return
+    for f in old[:-BACKUP_KEEP]:
+        try:
+            os.remove(os.path.join(BACKUP_DIR, f))
+            log("Removed an older backup: %s" % f)
+        except Exception:
+            pass
+
+
 def backup_userdata():
-    """A copy of the database and the ignore list, beside the install.
+    """A copy of the database and the ignore list, in Userdata/Backup.
 
     Logs and thumbnails are left out on purpose: logs are noise and thumbnails
     are rebuilt from the pictures. What cannot be recreated is the database.
     """
+    os.makedirs(BACKUP_DIR, exist_ok=True)
     name = "Userdata-backup-v%s.zip" % VERSION
-    dest = os.path.join(ROOT_DIR, name)
+    dest = os.path.join(BACKUP_DIR, name)
     tmp = dest + ".part"
     try:
         os.remove(tmp)
@@ -453,11 +489,13 @@ def backup_userdata():
         if os.path.isfile(IGNORED_TAGS_FILE):
             z.write(IGNORED_TAGS_FILE, "ignored_tags.txt")
     os.replace(tmp, dest)
+    _prune_backups()
     return dest, os.path.getsize(dest)
 
 
 _BAT = r"""@echo off
 setlocal
+title TrackImage update
 set "ROOT=%(root)s"
 set "STAGE=%(stage)s"
 set "PID=%(pid)s"
@@ -466,10 +504,21 @@ set "LOG=%(log)s"
 set "REPORT=%(root)s\Trackimage_files\Userdata\Logs\update.log"
 >"%%LOG%%" echo TrackImage update: waiting for the app to close
 
-rem ping is the sleep here, not timeout. This script runs without a console of
-rem its own, and timeout refuses to run without one -- it failed instantly, so
-rem every wait below was no wait at all, and the swap was attempted in the same
-rem breath as the app exiting.
+rem A window, because an update that takes half a minute with nothing on screen
+rem looks exactly like a program that has crashed. It says what it is doing and
+rem closes itself when TrackImage comes back.
+echo.
+echo   ========================================
+echo      TrackImage is updating
+echo   ========================================
+echo.
+echo   Do not close this window.
+echo.
+
+rem ping is the sleep here, not timeout: timeout reads from the console and
+rem fails wherever there is none, which used to make every wait below no wait
+rem at all -- the swap was attempted in the same breath as the app exiting.
+echo   [1/5] Waiting for TrackImage to close...
 :wait
 tasklist /FI "PID eq %%PID%%" 2>nul | find "%%PID%%" >nul
 if not errorlevel 1 (
@@ -485,6 +534,7 @@ if exist "%%ROOT%%\Trackimage_files.bak" rmdir /s /q "%%ROOT%%\Trackimage_files.
 rem A handle held a second longer -- a virus scanner reading the folder, an
 rem explorer window open in it -- is a reason to wait, not to abandon the
 rem update. Half a minute of trying, then the previous version stays.
+echo   [2/5] Setting the old version aside...
 set /a TRY=0
 :trymove
 move "%%ROOT%%\Trackimage_files" "%%ROOT%%\Trackimage_files.bak" >nul 2>&1
@@ -492,10 +542,12 @@ if not errorlevel 1 goto moved
 set /a TRY+=1
 >>"%%LOG%%" echo could not move Trackimage_files aside (attempt %%TRY%%)
 if %%TRY%% GEQ 30 goto giveup
+echo         still in use, waiting... (%%TRY%%/30)
 ping -n 2 127.0.0.1 >nul
 goto trymove
 :moved
 
+echo   [3/5] Putting the new version in place...
 move "%%SRC%%\Trackimage_files" "%%ROOT%%\Trackimage_files" >nul 2>&1
 if errorlevel 1 goto rollback
 
@@ -503,6 +555,7 @@ rem This machine's own things, carried across rather than taken from the
 rem archive: the database, the tagging model, and the Python environment the
 rem launcher built. That environment is gigabytes and minutes of pip -- losing
 rem it on every update would mean losing auto-tagging on every update.
+echo   [4/5] Carrying your library, model and Python environment across...
 move "%%ROOT%%\Trackimage_files.bak\Userdata" "%%ROOT%%\Trackimage_files\Userdata" >nul 2>&1
 if errorlevel 1 goto rollback
 if exist "%%ROOT%%\Trackimage_files.bak\models" (
@@ -514,26 +567,26 @@ if exist "%%ROOT%%\Trackimage_files.bak\venv" (
 
 copy /y "%%SRC%%\start-*.*" "%%ROOT%%\" >nul 2>nul
 if exist "%%SRC%%\README.md" copy /y "%%SRC%%\README.md" "%%ROOT%%\" >nul 2>nul
-rem docs is replaced whole, never merged: a file dropped from the new version
-rem must not survive in the folder as a leftover of the old one.
-if exist "%%SRC%%\docs" (
-  if exist "%%ROOT%%\docs" rmdir /s /q "%%ROOT%%\docs"
-  move "%%SRC%%\docs" "%%ROOT%%\docs" >nul 2>&1
-)
 rem What earlier versions put here and this one no longer ships. The archive
 rem stopped carrying the workshop files (see .gitattributes), so an install made
-rem before that still has them and would keep them for ever.
+rem before that still has them and would keep them for ever. docs moved inside
+rem Trackimage_files, so the copy beside the launchers is stale too.
 if exist "%%ROOT%%\README.txt" del /q "%%ROOT%%\README.txt" >nul 2>nul
 if exist "%%ROOT%%\CLAUDE.md" del /q "%%ROOT%%\CLAUDE.md" >nul 2>nul
 if exist "%%ROOT%%\.gitignore" del /q "%%ROOT%%\.gitignore" >nul 2>nul
 if exist "%%ROOT%%\.gitattributes" del /q "%%ROOT%%\.gitattributes" >nul 2>nul
 if exist "%%ROOT%%\.github" rmdir /s /q "%%ROOT%%\.github" >nul 2>nul
+if exist "%%ROOT%%\docs" rmdir /s /q "%%ROOT%%\docs" >nul 2>nul
 if exist "%%ROOT%%\TrackImage-update.log" del /q "%%ROOT%%\TrackImage-update.log" >nul 2>nul
 
+echo   [5/5] Starting TrackImage...
 rmdir /s /q "%%ROOT%%\Trackimage_files.bak" >nul 2>&1
 rmdir /s /q "%%STAGE%%" >nul 2>&1
 del /q "%%LOG%%" >nul 2>&1
 start "" "%%ROOT%%\start-windows.bat"
+echo.
+echo   Done.
+ping -n 3 127.0.0.1 >nul
 rem Nothing is left of the update: this script is the last piece, and it goes
 rem too. (goto) with no label ends the batch while the & chain still runs, which
 rem is the only way a batch file can remove itself.
@@ -547,16 +600,22 @@ move "%%ROOT%%\Trackimage_files.bak" "%%ROOT%%\Trackimage_files" >nul 2>&1
 :giveup
 >>"%%LOG%%" echo the update was not installed. The previous version is in place
 >>"%%LOG%%" echo and nothing in Userdata was touched.
-rem No pause here. There is no console to read a key from, so waiting for one
-rem is how an update used to end with TrackImage simply never coming back.
-rem The staging folder goes either way -- leaving _ti_update behind told the
-rem user something had broken without saying what.
+echo.
+echo   The update could not be installed.
+echo   The previous version is back in place and your library is untouched.
+echo   Details: Trackimage_files\Userdata\Logs\update.log
+echo.
+rem No pause: there may be no console to read a key from, and waiting for one
+rem is how an update once ended with TrackImage simply never coming back. Long
+rem enough to read, then on with the restart.
 rem What went wrong is kept, but in the log folder with everything else rather
 rem than as a stray file beside the launchers.
 if exist "%%ROOT%%\Trackimage_files\Userdata\Logs" copy /y "%%LOG%%" "%%REPORT%%" >nul 2>nul
 del /q "%%LOG%%" >nul 2>&1
 rmdir /s /q "%%STAGE%%" >nul 2>&1
+echo   Starting the previous version...
 start "" "%%ROOT%%\start-windows.bat"
+ping -n 9 127.0.0.1 >nul
 (goto) 2>nul & del /q "%%~f0"
 exit /b 1
 """
@@ -573,7 +632,11 @@ REPORT="%(root)s/Trackimage_files/Userdata/Logs/update.log"
 # user staring at a closed window is worse than one that never started: the
 # previous version is still there and perfectly able to run.
 restart() {
+  # Nothing is left of the update: the staging folder, the log, and this script
+  # itself. Unlinking a running script is safe -- the shell holds it open by
+  # descriptor -- and every caller exits immediately afterwards.
   rm -rf "$STAGE" "$LOG"
+  rm -f "$0"
   chmod +x "$ROOT"/start-linux.sh "$ROOT"/start-macos.command 2>/dev/null
   if [ -x "$ROOT/start-macos.command" ] && [ "$(uname)" = "Darwin" ]; then
     open "$ROOT/start-macos.command"
@@ -623,23 +686,15 @@ mv "$ROOT/Trackimage_files.bak/Userdata" "$ROOT/Trackimage_files/Userdata" 2>/de
 
 cp -f "$SRC"/start-* "$ROOT/" 2>/dev/null
 [ -f "$SRC/README.md" ] && cp -f "$SRC/README.md" "$ROOT/"
-# docs is replaced whole, never merged: a file dropped from the new version
-# must not survive in the folder as a leftover of the old one.
-if [ -d "$SRC/docs" ]; then
-  rm -rf "$ROOT/docs"
-  mv "$SRC/docs" "$ROOT/docs"
-fi
 # What earlier versions put here and this one no longer ships. The archive
 # stopped carrying the workshop files (see .gitattributes), so an install made
 # before that still has them and would keep them for ever.
 rm -f "$ROOT/README.txt" "$ROOT/CLAUDE.md" "$ROOT/.gitignore" "$ROOT/.gitattributes" \
       "$ROOT/TrackImage-update.log"
-rm -rf "$ROOT/.github"
+rm -rf "$ROOT/.github" "$ROOT/docs"
 
 rm -rf "$ROOT/Trackimage_files.bak"
 restart
-# Nothing is left of the update: this script is the last piece, and it goes too.
-rm -f "$0"
 exit 0
 """
 
@@ -660,11 +715,12 @@ _STALE = (
     ".gitattributes",
     ".github",
     "TrackImage-update.log",    # an update log, now kept in Userdata/Logs
+    "docs",                     # moved into Trackimage_files in v4.65
 )
 
 
 def tidy_installation():
-    """Remove what an earlier version left in the installation folder."""
+    """Put right what an earlier version left in the installation folder."""
     removed = []
     for name in _STALE:
         path = os.path.join(ROOT_DIR, name)
@@ -678,8 +734,26 @@ def tidy_installation():
             removed.append(name)
         except Exception:
             pass                # a file in use is not worth a failed start
+    # A backup is the user's, not ours: the ones older versions dropped beside
+    # the launchers are moved to where backups live now rather than deleted.
+    moved = 0
+    try:
+        for f in os.listdir(ROOT_DIR):
+            if not (f.startswith("Userdata-backup-") and f.endswith(".zip")):
+                continue
+            os.makedirs(BACKUP_DIR, exist_ok=True)
+            try:
+                os.replace(os.path.join(ROOT_DIR, f), os.path.join(BACKUP_DIR, f))
+                moved += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
     if removed:
         log("Tidied up after an earlier version: %s" % ", ".join(removed))
+    if moved:
+        log("Moved %d backup(s) into Userdata/Backup" % moved)
+        _prune_backups()
     return removed
 
 
@@ -761,14 +835,14 @@ def _run(info):
         log("Update to v%s staged. Restarting." % found)
 
         if os.name == "nt":
-            # CREATE_NO_WINDOW, not DETACHED_PROCESS: the helper still runs
-            # unseen, but it has a console, so a console command inside it
-            # behaves. Detached, it had none -- and timeout quietly refused to
-            # wait, which is how a swap came to be attempted before the app had
-            # let go of its own files.
-            NO_WINDOW = 0x08000000 | 0x00000200   # CREATE_NO_WINDOW | NEW_PROCESS_GROUP
+            # A window of its own, and a visible one. TrackImage closes for
+            # the swap, so without it there is half a minute where the program
+            # is gone and nothing says why -- which is indistinguishable from a
+            # crash. The helper narrates what it is doing and closes when
+            # TrackImage is back.
+            NEW_CONSOLE = 0x00000010 | 0x00000200  # CREATE_NEW_CONSOLE | NEW_PROCESS_GROUP
             subprocess.Popen(["cmd", "/c", helper], cwd=ROOT_DIR,
-                             creationflags=NO_WINDOW, close_fds=True)
+                             creationflags=NEW_CONSOLE, close_fds=True)
         else:
             subprocess.Popen(["/bin/sh", helper], cwd=ROOT_DIR,
                              start_new_session=True, close_fds=True)

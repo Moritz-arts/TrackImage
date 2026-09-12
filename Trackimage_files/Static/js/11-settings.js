@@ -508,13 +508,13 @@ function updateCardHtml(){
    +'<div class="proc-hint" id="upd-ch-hint">'+channelHintHtml()+'</div>'
    +'<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
    +'<button class="btn btn-sm btn-primary" id="upd-btn" onclick="checkUpdates()">Search for updates</button>'
-   +'<a class="btn btn-sm" href="https://github.com/Moritz-arts/TrackImage/blob/main/docs/CHANGELOG.md" target="_blank" rel="noopener">What changed</a>'
+   +'<a class="btn btn-sm" href="https://github.com/Moritz-arts/TrackImage/blob/main/Trackimage_files/docs/CHANGELOG.md" target="_blank" rel="noopener">What changed</a>'
    +'</div>'
    +'<div id="upd-result" style="margin-top:14px"></div>'
    +'<div class="proc-row" style="margin-top:16px"><label>Check automatically at start</label>'
    +'<label class="switch"><input id="upd-auto" type="checkbox" onchange="setAutoCheck(this.checked)"><span class="slider"></span></label></div>'
    +'<div class="proc-hint">Off by default. TrackImage opens no connection of its own \u2014 with this on, it asks GitHub once per start whether the chosen channel carries a newer version, and nothing else.</div>'
-   +'<div class="proc-hint" style="margin-top:10px">An update downloads that version straight from the repository, checks the archive, copies the database to <b>Userdata-backup-v'+TI_VERSION+'.zip</b> beside the installation, and then restarts into the new version. Your pictures, database, settings and the tagging model stay where they are. If the swap fails at any point the previous version is put back.</div>'
+   +'<div class="proc-hint" style="margin-top:10px">An update downloads that version straight from the repository, checks the archive, copies the database to <b>Trackimage_files/Userdata/Backup</b>, and then restarts into the new version \u2014 a window shows what it is doing while TrackImage is closed. Your pictures, database, settings and the tagging model stay where they are. If the swap fails at any point the previous version is put back.</div>'
    +'</div>';
 }
 
