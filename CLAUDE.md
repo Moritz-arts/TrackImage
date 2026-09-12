@@ -81,9 +81,15 @@ Do not create releases or tags yourself, and do not push to `main`.
   shipped and this one does not is deleted by name there. Drop a file from the
   root and it has to be added to that list, or it survives on every machine
   that updates.
-- **`Userdata/` and `models/` belong to the machine, not the program.** They are
-  git-ignored, never travel in an archive, and an update carries them across
-  untouched. Nothing may write into them from a release path.
+- **`Userdata/`, `models/` and `venv/` belong to the machine, not the program.**
+  They sit inside `Trackimage_files/`, which an update replaces whole, so the
+  helper in `updater.py` moves all three across by hand. They are git-ignored
+  and never travel in an archive. Forgetting one costs the user their database,
+  a 1.3 GB model, or minutes of pip on every single update.
+- **The update helper runs without a console.** On Windows that rules out
+  `timeout` and `pause` — they refuse to run and the script sails past every
+  wait, or hangs forever on a keypress nobody can give. `ping -n` is the sleep,
+  and every exit path restarts TrackImage, including the ones that failed.
 
 ## House style
 
