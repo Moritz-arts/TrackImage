@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.61 — 2026-09-12
+
+- Docs move into one folder, and the update dialog lists what is new
+
 ## v4.60 — 2026-09-11
 
 - Two channels, and a history that writes itself
