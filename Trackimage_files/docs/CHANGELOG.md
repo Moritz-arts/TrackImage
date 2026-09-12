@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.68 — 2026-09-12
+
+- Settings opens at the speed of its slowest request, not the sum of them
+
 ## v4.67 — 2026-09-12
 
 - The update reports into TrackImage's own console, and no window is left waiting
