@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.66 — 2026-09-12
+
+- Drop the changelog link from the update card
+
 ## v4.65 — 2026-09-12
 
 - An update shows its progress, keeps its backups in Userdata, and docs moves in
