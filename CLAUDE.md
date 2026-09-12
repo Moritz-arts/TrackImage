@@ -102,6 +102,16 @@ Do not create releases or tags yourself, and do not push to `main`.
   helper in `updater.py` moves all three across by hand. They are git-ignored
   and never travel in an archive. Forgetting one costs the user their database,
   a 1.3 GB model, or minutes of pip on every single update.
+- **The helper must not live in the folder it deletes.** A shell reads a script
+  as it goes, so when the helper removed the staging folder it was being read
+  from, execution simply stopped there — and the two lines after it, the tidy-up
+  and the restart, never ran. It is written to the system temp folder now and
+  deletes itself last.
+- **A cleanup added to the helper takes effect one version late.** The script
+  that performs a swap comes from the version being replaced, so it only knows
+  the names that version knew. `tidy_installation()` in `updater.py` runs at
+  start from the version that actually knows them; add a newly dropped name to
+  its `_STALE` list as well as to the helper.
 - **The update helper runs without a console.** On Windows that rules out
   `timeout` and `pause` — they refuse to run and the script sails past every
   wait, or hangs forever on a keypress nobody can give. `ping -n` is the sleep,

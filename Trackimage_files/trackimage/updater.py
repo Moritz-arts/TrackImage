@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -461,7 +462,8 @@ set "ROOT=%(root)s"
 set "STAGE=%(stage)s"
 set "PID=%(pid)s"
 set "SRC=%(src)s"
-set "LOG=%(root)s\TrackImage-update.log"
+set "LOG=%(log)s"
+set "REPORT=%(root)s\Trackimage_files\Userdata\Logs\update.log"
 >"%%LOG%%" echo TrackImage update: waiting for the app to close
 
 rem ping is the sleep here, not timeout. This script runs without a console of
@@ -526,11 +528,16 @@ if exist "%%ROOT%%\CLAUDE.md" del /q "%%ROOT%%\CLAUDE.md" >nul 2>nul
 if exist "%%ROOT%%\.gitignore" del /q "%%ROOT%%\.gitignore" >nul 2>nul
 if exist "%%ROOT%%\.gitattributes" del /q "%%ROOT%%\.gitattributes" >nul 2>nul
 if exist "%%ROOT%%\.github" rmdir /s /q "%%ROOT%%\.github" >nul 2>nul
+if exist "%%ROOT%%\TrackImage-update.log" del /q "%%ROOT%%\TrackImage-update.log" >nul 2>nul
 
 rmdir /s /q "%%ROOT%%\Trackimage_files.bak" >nul 2>&1
 rmdir /s /q "%%STAGE%%" >nul 2>&1
 del /q "%%LOG%%" >nul 2>&1
 start "" "%%ROOT%%\start-windows.bat"
+rem Nothing is left of the update: this script is the last piece, and it goes
+rem too. (goto) with no label ends the batch while the & chain still runs, which
+rem is the only way a batch file can remove itself.
+(goto) 2>nul & del /q "%%~f0"
 exit /b 0
 
 :rollback
@@ -544,8 +551,13 @@ rem No pause here. There is no console to read a key from, so waiting for one
 rem is how an update used to end with TrackImage simply never coming back.
 rem The staging folder goes either way -- leaving _ti_update behind told the
 rem user something had broken without saying what.
+rem What went wrong is kept, but in the log folder with everything else rather
+rem than as a stray file beside the launchers.
+if exist "%%ROOT%%\Trackimage_files\Userdata\Logs" copy /y "%%LOG%%" "%%REPORT%%" >nul 2>nul
+del /q "%%LOG%%" >nul 2>&1
 rmdir /s /q "%%STAGE%%" >nul 2>&1
 start "" "%%ROOT%%\start-windows.bat"
+(goto) 2>nul & del /q "%%~f0"
 exit /b 1
 """
 
@@ -554,13 +566,14 @@ ROOT='%(root)s'
 STAGE='%(stage)s'
 SRC='%(src)s'
 PID=%(pid)s
-LOG="%(root)s/TrackImage-update.log"
+LOG="%(log)s"
+REPORT="%(root)s/Trackimage_files/Userdata/Logs/update.log"
 
 # However this ends, TrackImage comes back. An update that fails and leaves the
 # user staring at a closed window is worse than one that never started: the
 # previous version is still there and perfectly able to run.
 restart() {
-  rm -rf "$STAGE"
+  rm -rf "$STAGE" "$LOG"
   chmod +x "$ROOT"/start-linux.sh "$ROOT"/start-macos.command 2>/dev/null
   if [ -x "$ROOT/start-macos.command" ] && [ "$(uname)" = "Darwin" ]; then
     open "$ROOT/start-macos.command"
@@ -571,6 +584,9 @@ restart() {
 
 give_up() {
   echo "$1" >> "$LOG"
+  # What went wrong is kept, but in the log folder with everything else rather
+  # than as a stray file beside the launchers.
+  [ -d "$ROOT/Trackimage_files/Userdata/Logs" ] && cat "$LOG" >> "$REPORT" 2>/dev/null
   restart
   exit 1
 }
@@ -616,24 +632,78 @@ fi
 # What earlier versions put here and this one no longer ships. The archive
 # stopped carrying the workshop files (see .gitattributes), so an install made
 # before that still has them and would keep them for ever.
-rm -f "$ROOT/README.txt" "$ROOT/CLAUDE.md" "$ROOT/.gitignore" "$ROOT/.gitattributes"
+rm -f "$ROOT/README.txt" "$ROOT/CLAUDE.md" "$ROOT/.gitignore" "$ROOT/.gitattributes" \
+      "$ROOT/TrackImage-update.log"
 rm -rf "$ROOT/.github"
 
 rm -rf "$ROOT/Trackimage_files.bak"
-rm -f "$LOG"
 restart
+# Nothing is left of the update: this script is the last piece, and it goes too.
+rm -f "$0"
 exit 0
 """
 
 
+#: Names an installation may be carrying that this version does not ship.
+#:
+#: The helper can only clean up what the version BEFORE it knew about -- it is
+#: the old installation's script that performs a swap -- so a name added here
+#: would otherwise take two updates to take effect. This runs at start instead,
+#: from the version that actually knows the name, and clears it at once.
+#:
+#: Only these exact names, only in the installation folder, and never anything
+#: the program uses.
+_STALE = (
+    "README.txt",               # the layout before README.md alone
+    "CLAUDE.md",                # workshop notes, not shipped since v4.63
+    ".gitignore",
+    ".gitattributes",
+    ".github",
+    "TrackImage-update.log",    # an update log, now kept in Userdata/Logs
+)
+
+
+def tidy_installation():
+    """Remove what an earlier version left in the installation folder."""
+    removed = []
+    for name in _STALE:
+        path = os.path.join(ROOT_DIR, name)
+        if not os.path.exists(path):
+            continue
+        try:
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+            removed.append(name)
+        except Exception:
+            pass                # a file in use is not worth a failed start
+    if removed:
+        log("Tidied up after an earlier version: %s" % ", ".join(removed))
+    return removed
+
+
 def _write_helper(src_dir):
-    """The script that does the swap once this process is gone."""
-    subs = {"root": ROOT_DIR, "stage": STAGE_DIR, "src": src_dir, "pid": os.getpid()}
+    """The script that does the swap once this process is gone.
+
+    It lives in the system temp folder, NOT in the staging folder it deletes.
+    A shell reads a script as it goes rather than all at once, so a script that
+    removes the directory it is being read from simply stops there -- which is
+    what happened: the staging folder went, and the two lines after it, the ones
+    that tidy up and start TrackImage again, were never read. An update
+    succeeded and looked like a crash.
+    """
+    log_path = os.path.join(tempfile.gettempdir(),
+                            "trackimage-update-%d.log" % os.getpid())
+    subs = {"root": ROOT_DIR, "stage": STAGE_DIR, "src": src_dir,
+            "pid": os.getpid(), "log": log_path}
     if os.name == "nt":
-        path = os.path.join(STAGE_DIR, "apply.bat")
+        path = os.path.join(tempfile.gettempdir(),
+                            "trackimage-apply-%d.bat" % os.getpid())
         text, enc = _BAT % subs, "utf-8"
     else:
-        path = os.path.join(STAGE_DIR, "apply.sh")
+        path = os.path.join(tempfile.gettempdir(),
+                            "trackimage-apply-%d.sh" % os.getpid())
         text, enc = _SH % subs, "utf-8"
     with open(path, "w", encoding=enc, newline="\r\n" if os.name == "nt" else "\n") as f:
         f.write(text)
