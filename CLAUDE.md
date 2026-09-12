@@ -129,6 +129,16 @@ Do not create releases or tags yourself, and do not push to `main`.
   `:no_start` did after an update. The helper exports `TI_AFTER_UPDATE`, and
   `:hold` in the launchers counts down and closes instead of pausing.
 
+- **Ask for everything at once.** The settings page fetched seven endpoints one
+  after another, so it cost the sum of them and each one queued behind whatever
+  the background workers were doing. The server runs `threaded=True`, so a
+  `Promise.all` costs the slowest instead of the total — measured at 437 ms
+  against 68 ms. Any page that needs several endpoints should do the same.
+- **A poll is a delay.** Anything driven by polling is stale for as long as the
+  interval: the work spinner kept turning for up to four seconds after the work
+  had finished. `pollWork()` in `13-startup.js` asks both endpoints together and
+  follows the work — 1.2 s while something is running, 5 s when nothing is.
+
 ## House style
 
 Both languages here are written the same way: compact code, and comments that

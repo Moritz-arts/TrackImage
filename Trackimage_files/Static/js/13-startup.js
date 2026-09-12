@@ -103,17 +103,30 @@ document.addEventListener('contextmenu',function(e){if(!e.target.closest('.tree-
 
 refreshDraggableAttr();
 
-setInterval(function(){
-    fetch('/api/processing/status').then(function(r){return r.json();}).then(function(d){
-        S._proc=d;updateWorkSpinner();
+/* v4.68: the spinner used to keep turning for up to four seconds after the work
+   had finished, because that was how long it took to ask again -- and the two
+   questions were asked one after the other, so the tag state was a further round
+   trip behind that. They go together now, and the rhythm follows the work: brisk
+   while something is running, unhurried once nothing is. */
+var _WORK_POLL_BUSY=1200, _WORK_POLL_IDLE=5000, _workPollTimer=null;
+
+function pollWork(){
+    Promise.all([
+        fetch('/api/processing/status').then(function(r){return r.json();}).catch(function(){return null;}),
+        fetch('/api/tag-settings').then(function(r){return r.json();}).catch(function(){return null;})
+    ]).then(function(r){
+        if(r[0])S._proc=r[0];
+        if(r[1])S._tag=Object.assign(S._tag||{},r[1]);
+        updateWorkSpinner();
         if(S.page==='settings')refreshSetNav();
-    }).then(function(){
-        return fetch('/api/tag-settings').then(function(r){return r.json();}).then(function(t){
-            S._tag=Object.assign(S._tag||{},t);updateWorkSpinner();
-            if(S.page==='settings')refreshSetNav();
-        }).catch(function(){});
-    }).catch(function(){});
-},4000);
+    }).catch(function(){}).then(function(){
+        clearTimeout(_workPollTimer);
+        _workPollTimer=setTimeout(pollWork,workBusy()?_WORK_POLL_BUSY:_WORK_POLL_IDLE);
+    });
+}
+/* Not right now: startup already has a queue of its own, and one more pair of
+   requests in the middle of it helps nobody. */
+_workPollTimer=setTimeout(pollWork,1200);
 
 document.addEventListener('mouseover',function(e){
     if(!WINDOW_MODE||IS_WINDOWS)return;
