@@ -508,7 +508,10 @@ function updateCardHtml(){
    +'<div class="proc-hint" id="upd-ch-hint">'+channelHintHtml()+'</div>'
    +'<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
    +'<button class="btn btn-sm btn-primary" id="upd-btn" onclick="checkUpdates()">Search for updates</button>'
-   +'<a class="btn btn-sm" href="https://github.com/Moritz-arts/TrackImage/blob/main/Trackimage_files/docs/CHANGELOG.md" target="_blank" rel="noopener">What changed</a>'
+   /* No link to the changelog here. It pointed at a file in the repository, so
+      it broke the moment that file moved -- and the check below already lists
+      every version between this one and the one on offer, which is the thing
+      somebody wanted the link for. */
    +'</div>'
    +'<div id="upd-result" style="margin-top:14px"></div>'
    +'<div class="proc-row" style="margin-top:16px"><label>Check automatically at start</label>'
