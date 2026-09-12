@@ -372,6 +372,9 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg-primary)
 .proc-how-body p{font-size:12.5px;color:var(--text-secondary);margin:8px 0 0;line-height:1.5;}
 .proc-how-body b{color:var(--text-primary);}
 .proc-hint{font-size:11.5px;color:var(--text-muted);margin:-4px 0 14px;line-height:1.45;}
+/* The -4px above tucks a hint under the row it explains. After a row of
+   buttons it does the opposite -- it pulls the first line into them. */
+.proc-hint.below-buttons{margin-top:10px;}
 .ignore-word-tag{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;background:var(--bg-primary);border:1px solid var(--border);border-radius:20px;font-size:13px;color:var(--text-secondary);margin:2px;}
 .ignore-word-tag .remove{cursor:pointer;color:var(--danger);opacity:.6;font-size:14px;}.ignore-word-tag .remove:hover{opacity:1;}
 .setup-screen{display:flex;align-items:center;justify-content:center;min-height:60vh;}

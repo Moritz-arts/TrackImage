@@ -183,6 +183,19 @@ def _get_text(url):
 #: "## v4.62 — 2026-09-12", the heading changelog_entry.py writes.
 _HEADING_RE = re.compile(r"^##\s+v?([\d][\d.]*)\s*(?:[—\-–]\s*(\S+))?\s*$", re.M)
 
+#: Marks the workflow leaves in its own commit message. They are instructions to
+#: the machinery, not a description of anything, and have no business being read
+#: as "what is new in this version".
+_NOISE_RE = re.compile(r"^\s*(\[skip ci\]|\[skip version\])\s*$", re.M | re.I)
+
+
+def _clean_notes(text):
+    text = _NOISE_RE.sub("", text or "")
+    # The bump commit's subject ends in the version it produced; the dialog
+    # already says which version this is.
+    text = re.sub(r"\s*\(v[\d.]+\)\s*$", "", text.strip(), flags=re.M)
+    return "\n".join(ln for ln in text.splitlines() if ln.strip()).strip()
+
 
 def changelog_between(ref, after, upto):
     """Every changelog entry newer than `after`, up to and including `upto`.
@@ -249,7 +262,7 @@ def _check_latest():
                                        urllib.parse.quote(BRANCH, safe="")))
         sha = (head.get("sha") or "")[:7]
         commit = head.get("commit") or {}
-        notes = (commit.get("message") or "")[:8000]
+        notes = _clean_notes(commit.get("message") or "")[:8000]
         date = ((commit.get("committer") or {}).get("date") or "")[:10]
         page = head.get("html_url") or page
     except Exception:
@@ -279,7 +292,7 @@ def _check_stable():
         "tag": tag,
         "sha": "",
         "name": data.get("name") or tag,
-        "notes": (data.get("body") or "")[:8000],
+        "notes": _clean_notes(data.get("body") or "")[:8000],
         "page": data.get("html_url") or (RELEASES_PAGE % (GITHUB_OWNER, GITHUB_REPO)),
         "published": (data.get("published_at") or "")[:10],
         "asset_name": "%s-%s.zip" % (GITHUB_REPO, tag),

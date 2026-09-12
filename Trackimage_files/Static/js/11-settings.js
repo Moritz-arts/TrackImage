@@ -589,7 +589,7 @@ async function checkUpdates(){
              +'<a class="btn btn-sm" href="'+esc(r.page)+'" target="_blank" rel="noopener">Open on GitHub</a></div>'
              /* Where this comes from, said plainly rather than left for the
                 user to wonder about. */
-             +'<div class="proc-hint">Taken from '+(r.channel==='latest'?('the <b>'+esc(r.branch||'main')+'</b> branch'+(r.sha?(' at '+esc(r.sha)):'')):('the <b>'+esc(r.tag||('v'+r.latest))+'</b> release'))+' \u2014 the repository\u2019s own folders, the same ones TrackImage runs from. GitHub packs that archive on request, so its size is only known once the download starts.</div>'))
+             +'<div class="proc-hint below-buttons">Taken from '+(r.channel==='latest'?('the <b>'+esc(r.branch||'main')+'</b> branch'+(r.sha?(' at '+esc(r.sha)):'')):('the <b>'+esc(r.tag||('v'+r.latest))+'</b> release'))+' \u2014 the repository\u2019s own folders, the same ones TrackImage runs from. GitHub packs that archive on request, so its size is only known once the download starts.</div>'))
    +'<div id="upd-prog" style="margin-top:12px"></div>';
 }
 
