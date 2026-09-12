@@ -33,6 +33,16 @@ state._UI_HANDOVER = False       # set while switching, so closing must not kill
 def main():
     _setup_logging()
     _install_crash_logging()
+    # v4.64: clear whatever an earlier layout left beside the launchers. It
+    # belongs here rather than in the update helper: that helper comes from the
+    # version being replaced, so it only ever knows the names the PREVIOUS
+    # version knew, and a newly dropped file would linger for one update longer
+    # than it should.
+    try:
+        from .updater import tidy_installation
+        tidy_installation()
+    except Exception:
+        pass
     # v4.02: a second start must never fight the first one for port 5001. Until now
     # it crashed on bind, which the launcher then reported as "Server crashed!"
     # while the running instance was perfectly fine. Hand the user over to the
