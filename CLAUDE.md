@@ -11,6 +11,15 @@ The repository root stays short on purpose — README.md, CLAUDE.md, the three
 launchers, `Trackimage_files/` and `docs/`. Prose that is not the front page
 goes in `docs/`; do not add another file beside the launchers.
 
+**What people download is not what the repository holds.** `.gitattributes`
+marks the workshop files `export-ignore`, so `.github/`, `CLAUDE.md` and the
+ignore lists are absent from the source archive GitHub builds — an installation
+is README.md, `docs/`, `Trackimage_files/` and the launchers. A new file that
+belongs to the workshop rather than to the program goes in that list too, and
+in the helper's cleanup in `updater.py` so installations made before it stop
+carrying it. It changes nothing for a clone, and Actions is unaffected: it
+checks the repository out rather than unpacking an archive.
+
 ## Versioning — do not do this by hand
 
 **Never edit a version number.** A workflow (`.github/workflows/version-bump.yml`)
