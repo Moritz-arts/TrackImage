@@ -24,6 +24,36 @@ function _impFilesInEvent(e){
   return t.indexOf('Files')>=0||t.indexOf('application/x-moz-file')>=0;
 }
 
+function _impMaybeFiles(e){
+  /* A drag whose types say nothing is taken seriously anyway. Some sources --
+     Outlook, a few file managers, and the app window itself when a drag enters
+     it before it has come to the front -- hand over an empty type list until
+     the drop actually happens, and refusing those means the drop never
+     arrives: the browser only delivers one where dragover said yes. Nothing is
+     lost by saying yes early; a drop that turns out to carry nothing usable is
+     answered with a message a moment later. */
+  return _impFilesInEvent(e)||!_impTypes(e).length;
+}
+
+function _impRefuse(e){
+  /* Why this drag is none of the importer's business, or '' when it is.
+     One answer for all four handlers, because they have to agree: dragenter
+     and dragover are what make the browser accept a drop at all, so a check
+     only one of them knows about does not refuse the drop -- it makes the drop
+     vanish, which is exactly what "it works sometimes" feels like. */
+  if(S.dragIds&&S.dragIds.length)return 'own';         // a drag inside the app
+  /* Files this window handed to Windows a moment ago, being dragged back over
+     it. Only for a moment: after that an external drop must be accepted again,
+     and whether they really are ours is settled by name at the drop itself. */
+  if(_cdHandedRecently(1500))return 'own';
+  var t=e&&e.target;
+  if(t&&t.closest){
+    if(t.closest('#dup-dropzone'))return 'dup';        // has its own drop
+    if(t.closest('input,textarea,[contenteditable="true"]'))return 'field';
+  }
+  return '';
+}
+
 function _impLinkInEvent(e){
   var t=_impTypes(e);
   return t.indexOf('text/uri-list')>=0||t.indexOf('text/x-moz-url')>=0;
