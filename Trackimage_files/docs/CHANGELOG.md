@@ -5,6 +5,12 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.74 — 2026-09-13
+
+- The database folder is called Database, and the last German comments are gone
+- The installation folder keeps its name instead of carrying the version
+- The staging folder goes even when the installation folder was renamed
+
 ## v4.73 — 2026-09-13
 
 - Dropping files in works from any page, and no longer needs the window in front
