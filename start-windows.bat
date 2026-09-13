@@ -21,7 +21,7 @@ cd /d "%TIDIR%"
 :: them up as .pre449 on a brand new install.
 if not exist "Userdata" md "Userdata"
 if not exist "Userdata\Logs" md "Userdata\Logs"
-if not exist "Userdata\Databank" md "Userdata\Databank"
+if not exist "Userdata\Database" md "Userdata\Database"
 echo.
 echo  ========================================
 echo   TrackImage v4.73 - Setup ^& Start

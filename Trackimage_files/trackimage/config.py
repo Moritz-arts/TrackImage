@@ -47,9 +47,9 @@ def _adopt_old_userdata():
         new = os.path.join(USERDATA_DIR, name)
         if not os.path.exists(old) or os.path.exists(new):
             continue
-        # v4.51: the launcher makes Logs and Databank before Python runs, so on
-        # a fresh install two empty folders sat here looking like an older
-        # layout and got backed up as .pre449 for nothing.
+        # v4.51: the launcher makes Logs and the database folder before Python
+        # runs, so on a fresh install two empty folders sat here looking like
+        # an older layout and got backed up as .pre449 for nothing.
         try:
             if os.path.isdir(old) and not os.listdir(old):
                 os.rmdir(old)
@@ -73,10 +73,53 @@ def _adopt_old_userdata():
             print(f"  could not move {name} into Userdata: {e}")
 
 
+def _rename_databank():
+    """Userdata/Databank -> Userdata/Database, once, on the way past.
+
+    "Databank" is not an English word, and everything in and around this
+    program is written in English. Renaming a folder that holds somebody's
+    library is done carefully: only when the new name is not taken, only by a
+    rename within the same folder (never a copy), and a failure leaves the old
+    one exactly where it was -- with DB_DIR following it, so an installation
+    that cannot be renamed still runs.
+    """
+    old = os.path.join(USERDATA_DIR, "Databank")
+    new = os.path.join(USERDATA_DIR, "Database")
+    if not os.path.isdir(old):
+        return new
+    # The launcher makes the folder before Python runs, so on the first start
+    # after the rename an EMPTY Database is already sitting beside the real
+    # Databank. Taking that at face value would hand back an empty folder and
+    # the library would come up with nothing in it: an empty one is in the way,
+    # not in use, and goes.
+    if os.path.isdir(new):
+        try:
+            if not os.listdir(new):
+                os.rmdir(new)
+        except Exception:
+            pass
+    if os.path.exists(new):
+        # Both hold something -- which cannot happen by any route this program
+        # takes. Use the new one and leave whatever is in the old one alone.
+        try:
+            if not os.listdir(old):
+                os.rmdir(old)
+        except Exception:
+            pass
+        return new
+    try:
+        os.rename(old, new)
+        print("  Databank renamed to Database")
+        return new
+    except Exception as e:
+        print(f"  could not rename Databank to Database ({e}) — using Databank")
+        return old
+
+
 os.makedirs(USERDATA_DIR, exist_ok=True)
 _adopt_old_userdata()
 
-DB_DIR     = os.path.join(USERDATA_DIR, "Databank")
+DB_DIR     = _rename_databank()
 
 
 LOG_DIR    = os.path.join(USERDATA_DIR, "Logs")

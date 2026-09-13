@@ -549,7 +549,7 @@ def backup_userdata():
     """A copy of the database and the ignore list, in Userdata/Backup.
 
     What cannot be recreated is the database -- tags, ratings, characters, the
-    duplicate signatures. Everything else under Databank is left out: logs are
+    duplicate signatures. Everything else under Database is left out: logs are
     noise, thumbnails are redrawn from the pictures, and `.trash` holds the
     user's own files, which a backup has no business copying a second time.
     """
@@ -566,7 +566,7 @@ def backup_userdata():
     try:
         _db_copy_without_thumbs(slim)
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
-            z.write(slim, os.path.join("Databank",
+            z.write(slim, os.path.join("Database",
                                        os.path.basename(app.config["DATABASE"])))
             if os.path.isfile(IGNORED_TAGS_FILE):
                 z.write(IGNORED_TAGS_FILE, "ignored_tags.txt")

@@ -2,7 +2,7 @@
 # .command so it can be launched from Finder by double-click.
 # cd into the script's own folder (Finder starts it in $HOME otherwise).
 # v4.33: and then one level down, into Trackimage_files, where everything
-# TrackImage owns now lives -- app.py, Static, Databank, Logs, venv, models.
+# TrackImage owns now lives -- app.py, Static, Database, Logs, venv, models.
 cd "$(dirname "$0")"
 TIDIR="$(pwd)/Trackimage_files"
 if [ ! -f "$TIDIR/app.py" ]; then
@@ -15,7 +15,7 @@ cd "$TIDIR" || exit 1
 # v4.51: these live under Userdata now. Making them where they used to be
 # made TrackImage take two empty folders for an older layout and back them
 # up as .pre449 on a brand new install.
-mkdir -p Userdata/Logs Userdata/Databank
+mkdir -p Userdata/Logs Userdata/Database
 
 echo ""
 echo "  ========================================"
