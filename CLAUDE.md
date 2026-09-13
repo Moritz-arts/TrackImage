@@ -123,6 +123,12 @@ Do not create releases or tags yourself, and do not push to `main`.
   On Windows `timeout` and `pause` are ruled out: they read from a console and
   fail or hang wherever there is none. `ping -n` is the sleep, and every exit
   path restarts TrackImage — including the ones that failed.
+- **`exit /b` does not close a console window.** It ends the batch script; the
+  cmd around it can outlive it and sit at a fresh prompt — which is what the
+  launcher did after an update, work finished and still on screen. `exit` ends
+  the shell. Every exit in the launcher goes through `:bye`, which uses `exit`
+  after an update and `exit /b` otherwise, so a window somebody opened
+  themselves is still theirs.
 - **Nothing the helper starts may wait for a keypress.** Nobody is sitting in
   front of a window that opened by itself, so a launcher branch ending in
   `pause` stays on screen for ever — which is what `:other_instance` and

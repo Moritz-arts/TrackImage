@@ -600,7 +600,7 @@ rem TI_AFTER_UPDATE tells the launcher not to wait for a keypress if it has
 rem something to report: nobody is sitting in front of that window, and one that
 rem waits for a key nobody presses stays on screen for ever.
 set "TI_AFTER_UPDATE=1"
-start "" "%%NEWROOT%%\start-windows.bat"
+start "" "%%NEWROOT%%\start-windows.bat" --after-update
 rem Nothing is left of the update: this script is the last piece, and it goes
 rem too. (goto) with no label ends the batch while the & chain still runs, which
 rem is the only way a batch file can remove itself.
@@ -617,7 +617,7 @@ rmdir /s /q "%%STAGE%%" >nul 2>&1
 call :handover
 set "NEWROOT=%%ROOT%%"
 set "TI_AFTER_UPDATE=1"
-start "" "%%NEWROOT%%\start-windows.bat"
+start "" "%%NEWROOT%%\start-windows.bat" --after-update
 (goto) 2>nul & del /q "%%~f0"
 exit /b 1
 
