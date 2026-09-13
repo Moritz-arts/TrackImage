@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.73 — 2026-09-13
+
+- Dropping files in works from any page, and no longer needs the window in front
+
 ## v4.72 — 2026-09-13
 
 - An update is noticed the minute it is pushed, not five minutes later
