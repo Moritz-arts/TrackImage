@@ -526,7 +526,7 @@ function updateCardHtml(){
    +'<div id="upd-result" style="margin-top:14px"></div>'
    +'<div class="proc-row" style="margin-top:16px"><label>Check automatically at start</label>'
    +'<label class="switch"><input id="upd-auto" type="checkbox" onchange="setAutoCheck(this.checked)"><span class="slider"></span></label></div>'
-   +'<div class="proc-hint">Off by default. TrackImage opens no connection of its own \u2014 with this on, it asks GitHub once per start whether the chosen channel carries a newer version, and nothing else.</div>'
+   +'<div class="proc-hint">Off by default. TrackImage opens no connection of its own \u2014 with this on, it asks GitHub once per start whether <b>the channel selected above</b> carries a newer version, and nothing else. The other channel is never looked at.</div>'
    +'<div class="proc-hint" style="margin-top:10px">An update downloads that version straight from the repository, checks the archive, copies the database — without the thumbnail cache, which is redrawn from your pictures — to <b>Trackimage_files/Userdata/Backup</b>, and then restarts into the new version \u2014 a window shows what it is doing while TrackImage is closed. Your pictures, database, settings and the tagging model stay where they are. If the swap fails at any point the previous version is put back.</div>'
    +'</div>';
 }
@@ -774,9 +774,17 @@ async function maybeAutoCheckUpdate(){
   if(!conf.enabled||!conf.configured)return;
   var r={};
   try{r=await api('/api/update/check');}catch(e){return;}
+  /* The check follows the channel this installation is set to, and so does
+     this. Saying which one it was is the difference between "a version exists"
+     and "a version exists on the channel you chose" -- and it keeps the card
+     from opening on the wrong one, since the page starts out assuming Stable
+     until the server says otherwise. */
+  if(r&&r.channel&&r.channel!==_updChannel){_updChannel=r.channel;_redrawChannel();}
   if(r&&r.ok&&r.newer){
     _updLast=r;
-    showToast('TrackImage v'+r.latest+' is available \u2014 Settings \u203a Repair & Update','success');
+    showToast('TrackImage v'+r.latest+' is available on '
+      +(r.channel==='latest'?'Latest (Beta)':'Stable')
+      +' \u2014 Settings \u203a Repair & Update','success');
   }
 }
 
