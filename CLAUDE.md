@@ -173,13 +173,16 @@ Do not create releases or tags yourself, and do not push to `main`.
   had finished. `pollWork()` in `13-startup.js` asks both endpoints together and
   follows the work — 1.2 s while something is running, 5 s when nothing is.
 
-- **The installation folder carries the version.** After a successful swap the
-  helper renames the root to `TrackImage-v<new>`, but only when the folder name
-  already begins with "TrackImage" — anything the user named themselves is left
-  alone — and only on success. Two consequences: the helper's `cwd` must not be
-  inside that folder (Windows locks it), and anything written afterwards must
-  use `NEWROOT`, not `ROOT`. `handover` once used `ROOT` and `mkdir -p` cheerfully
-  rebuilt an empty copy of the old folder.
+- **The installation folder keeps its name.** It used to be renamed to
+  `TrackImage-v<new>` after every swap, which reads well and breaks every
+  shortcut somebody made to it — once per update. `name_root` in the helper now
+  only corrects a name the program gave itself (`TrackImage-v4.71` → plain
+  `TrackImage`, once, and never if a `TrackImage` is already beside it); a name
+  the user chose is never touched. The version belongs in the app, not in the
+  path. The rename mechanics still matter for that one correction: the helper's
+  `cwd` must not be inside the folder (Windows locks it), and anything written
+  afterwards must use `NEWROOT`, not `ROOT` — `handover` once used `ROOT` and
+  `mkdir -p` cheerfully rebuilt an empty copy of the old folder.
 
 ## House style
 

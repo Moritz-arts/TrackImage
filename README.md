@@ -52,9 +52,9 @@ commit they point at. The version is raised on every push to `main`, and
 Whichever channel you pick, the button downloads it, verifies the archive,
 copies your database into
 `Trackimage_files/Userdata/Backup`, and restarts into the new version. A window
-names each step in TrackImage's own console. The folder is renamed to carry
-the version it holds, so a desktop shortcut to the old path needs pointing at
-the new one. Your pictures, database, settings and the tagging model are carried
+names each step in TrackImage's own console. The folder keeps its name, so a
+shortcut to it keeps working; which version is installed is shown in the app.
+Your pictures, database, settings and the tagging model are carried
 across untouched. If anything goes wrong the previous version is put back.
 
 You can also just download the source ZIP and unpack it into a new empty folder,

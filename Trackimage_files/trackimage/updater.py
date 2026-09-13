@@ -690,19 +690,23 @@ exit /b 1
 
 rem --- helpers -------------------------------------------------------------
 :nameroot
-rem The folder carries the version it holds, so "which one is installed" is
-rem answered by looking at it. Only a folder that is plainly ours is renamed --
-rem anything the user named themselves is left exactly as they named it -- and a
-rem rename that does not work changes nothing: NEWROOT simply stays where it was.
+rem The folder keeps its name. It used to be renamed to the version it held,
+rem which reads well and breaks every shortcut pointing at it -- once per
+rem update, which is the whole point of a shortcut gone. Only a name this
+rem program gave itself (TrackImage-v4.71) is corrected, once, back to plain
+rem TrackImage; a name the user chose is left exactly as they chose it, and a
+rem rename that does not work changes nothing: NEWROOT stays where it was.
 set "NEWROOT=%%ROOT%%"
 for %%%%I in ("%%ROOT%%") do set "PARENT=%%%%~dpI" & set "LEAF=%%%%~nxI"
-echo %%LEAF%% | findstr /I /B /C:"TrackImage" >nul || goto :eof
-set "WANT=TrackImage-v%(newver)s"
-if /I "%%LEAF%%"=="%%WANT%%" goto :eof
+rem /R with the pattern as a plain argument, not /C: -- the two together are
+rem documented as contradicting each other (literal vs expression), and ^ does
+rem the anchoring /B would.
+echo %%LEAF%%| findstr /I /R "^TrackImage-v[0-9]" >nul || goto :eof
+set "WANT=TrackImage"
 if exist "%%PARENT%%%%WANT%%" goto :eof
 move "%%ROOT%%" "%%PARENT%%%%WANT%%" >nul 2>&1 || goto :eof
 set "NEWROOT=%%PARENT%%%%WANT%%"
->>"%%LOG%%" echo Folder renamed to %%WANT%%
+>>"%%LOG%%" echo Folder renamed to %%WANT%% -- it keeps that name from now on
 goto :eof
 
 :step
@@ -735,19 +739,19 @@ say() { echo "$1"; echo "$1" >> "$LOG"; }
 # renamed below; every other path leaves it exactly where it was.
 NEWROOT="$ROOT"
 
-# The folder carries the version it holds, so "which one is installed" is
-# answered by looking at it. Only a folder that is plainly ours is renamed --
-# anything the user named themselves is left as they named it -- and a rename
-# that does not work changes nothing.
+# The folder keeps its name. It used to be renamed to the version it held,
+# which reads well and breaks every shortcut pointing at it -- once per update.
+# Only a name this program gave itself (TrackImage-v4.71) is corrected, once,
+# back to plain TrackImage; a name the user chose is left as they chose it, and
+# a rename that does not work changes nothing.
 name_root() {
   parent=$(dirname "$ROOT"); leaf=$(basename "$ROOT")
-  echo "$leaf" | grep -qi '^trackimage' || return 0
-  want="TrackImage-v%(newver)s"
-  [ "$leaf" = "$want" ] && return 0
+  echo "$leaf" | grep -qiE '^trackimage-v[0-9]' || return 0
+  want="TrackImage"
   [ -e "$parent/$want" ] && return 0
   mv "$ROOT" "$parent/$want" 2>/dev/null || return 0
   NEWROOT="$parent/$want"
-  echo "Folder renamed to $want" >> "$LOG"
+  echo "Folder renamed to $want -- it keeps that name from now on" >> "$LOG"
 }
 
 # The account of what happened goes where TrackImage keeps its logs -- under
@@ -935,9 +939,11 @@ def _write_helper(src_dir, new_version=None):
     """
     log_path = os.path.join(tempfile.gettempdir(),
                             "trackimage-update-%d.log" % os.getpid())
+    # new_version is no longer substituted anywhere: the folder is not named
+    # after it. Kept in the signature because the caller has it to hand and the
+    # next thing that needs to know which version is arriving will want it.
     subs = {"root": ROOT_DIR, "stage": STAGE_DIR, "src": src_dir,
-            "pid": os.getpid(), "log": log_path,
-            "newver": new_version or VERSION}
+            "pid": os.getpid(), "log": log_path}
     if os.name == "nt":
         path = os.path.join(tempfile.gettempdir(),
                             "trackimage-apply-%d.bat" % os.getpid())
