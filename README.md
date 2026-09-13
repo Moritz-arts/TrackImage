@@ -43,7 +43,7 @@ Settings › Repair & Update checks this repository and offers two channels:
 | | |
 |---|---|
 | **Stable** | the newest release. Versions that have been looked at and declared finished. |
-| **Latest** | the `main` branch as it stands. Every change, minutes after it is pushed. |
+| **Latest (Beta)** | the `main` branch as it stands. Every change, minutes after it is pushed — untested, so bugs are part of the deal. |
 
 Both use the same version numbers and the same files — they differ only in which
 commit they point at. The version is raised on every push to `main`, and
