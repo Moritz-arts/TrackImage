@@ -122,6 +122,14 @@ Do not create releases or tags yourself, and do not push to `main`.
   takes the copy through SQLite's backup API (the file is open and in WAL mode,
   so it is not a database on its own), drops `thumb_cache`, vacuums, and zips
   that. `.trash` is left out too: those are the user's own files.
+- **A drop the browser refused never happens at all.** `dragenter`/`dragover`
+  are what accept a drop; a condition only they know about does not refuse the
+  drop, it deletes it, with nothing on screen either way. That is why dropping
+  files worked "only sometimes": the handlers required the gallery to be the
+  open page, so a drop onto Settings, the duplicates list or an open picture
+  vanished. All four handlers ask `_impRefuse()` now, the drop switches to the
+  gallery itself, and a drag whose `dataTransfer.types` is still empty is
+  accepted rather than refused.
 - **A branch URL is cached, a commit URL cannot be.** `raw.githubusercontent.com`
   serves `…/main/…` with `max-age=300`, so for up to five minutes after a push
   the check read the old version and said "up to date". `_check_latest()` asks

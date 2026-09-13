@@ -19,40 +19,52 @@ window.addEventListener('blur',function(){_impCtrlHeld=false;});
 
 window.addEventListener('dragend',function(){_impReset();},true);
 
-window.addEventListener('blur',function(){_impReset();});
+/* Losing focus clears a veil nobody is dragging over any more -- but not one
+   that belongs to a drag in progress: a drag entering a window that is not in
+   front can take the page's focus away with it, and tearing the veil down
+   there put the gesture back to looking broken. The watchdog in _impAlive
+   removes a stale one a second and a half later anyway. */
+window.addEventListener('blur',function(){if(!_impDepth)_impReset();});
 
 document.addEventListener('keydown',function(e){
   if(e.key==='Escape'&&_impDepth)_impReset();
 },true);
 
+/* The three below are one gesture, so they answer the same question the same
+   way -- see _impRefuse. What they must never do is disagree: dragenter and
+   dragover are the only things that make the browser accept a drop, and a page
+   state either of them refuses over turns the drop into nothing at all. */
 document.addEventListener('dragenter',function(e){
-  if(!_impFilesInEvent(e))return;
-  if(_impOurOwn())return;
-  if(S.page!=='gallery'||!S.initialized)return;
-  if(e.target&&e.target.closest&&e.target.closest('#dup-dropzone'))return;
-  _impDepth++;_impAlive();e.preventDefault();_impVeil(true,_impPrompt());
+  if(!_impMaybeFiles(e))return;
+  if(_impRefuse(e))return;
+  _impDepth=1;_impAlive();e.preventDefault();_impVeil(true,_impPrompt());
 });
 
 document.addEventListener('dragover',function(e){
-  if(!_impFilesInEvent(e))return;
-  if(_impOurOwn())return;
-  if(S.page!=='gallery'||!S.initialized)return;
-  if(e.target&&e.target.closest&&e.target.closest('#dup-dropzone'))return;
+  if(!_impMaybeFiles(e))return;
+  if(_impRefuse(e))return;
+  /* The veil is raised here too, not only on dragenter. A window that was not
+     in front when the drag started can miss that first event entirely, and
+     then nothing on screen said the drop would be taken -- which is what made
+     dropping into an unfocused TrackImage look like it did not work. */
+  if(!_impDepth){_impDepth=1;_impVeil(true,_impPrompt());}
   _impAlive();
   e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect='copy';
 });
 
-document.addEventListener('dragleave',function(){
-  _impDepth=Math.max(0,_impDepth-1);
-  if(!_impDepth)_impReset();
+document.addEventListener('dragleave',function(e){
+  /* relatedTarget is empty only where the pointer has left the page itself.
+     Every other dragleave is one element handing the drag to the next, and
+     counting those is why the veil could fall away in the middle of a drag
+     over a grid of thumbnails. */
+  if(e.relatedTarget)return;
+  _impReset();
 });
 
 document.addEventListener('drop',function(e){
   var hasFiles=_impFilesInEvent(e),hasLink=_impLinkInEvent(e);
   if(!hasFiles&&!hasLink){_impReset();return;}
-  if(_impOurOwn()){_impReset();return;}
-  if(S.page!=='gallery'||!S.initialized){_impReset();return;}
-  if(e.target&&e.target.closest&&e.target.closest('#dup-dropzone')){_impReset();return;}
+  if(_impRefuse(e)){_impReset();return;}
   e.preventDefault();
   _impDepth=0;
   if(_impWatch){clearInterval(_impWatch);_impWatch=null;}
@@ -71,6 +83,12 @@ document.addEventListener('drop',function(e){
        Windows and then let go over TrackImage's own window. Importing them
        would write a copy of each original next to itself. */
     if(_cdHandedRecently(60000)&&_cdOwnFiles(files)){_impVeil(false);return;}
+    /* A drop is answered wherever it lands. It used to be thrown away unless
+       the gallery happened to be the open page, so files dropped while
+       Settings, the duplicates list or a picture was open disappeared without
+       a word -- and going back to the gallery first looked like "it only works
+       when the window is active". */
+    if(S.page!=='gallery')navigate('gallery');
     window._impCopyMode=copyMode;
     var t=_impTarget();
     if(t)return importFilesTo(t,files);
