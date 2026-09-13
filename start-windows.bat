@@ -1,6 +1,10 @@
 @echo off
 chcp 65001 >nul 2>&1
 title TrackImage
+:: The update helper passes this as well as setting it in the environment. One
+:: of the two always arrives, and the window has to know: started by the helper,
+:: it closes itself; started by a person, it behaves as it always did.
+if /I "%~1"=="--after-update" set "TI_AFTER_UPDATE=1"
 :: v4.33: everything TrackImage owns now lives one level down, in
 :: Trackimage_files. This launcher is the only thing the user should see in the
 :: folder they unpacked, so it goes there itself and works from there.
@@ -117,7 +121,7 @@ if errorlevel 1 (
   echo          installed. The full setup output is in Userdata\Logs\install.log.
   echo.
   call :hold
-  exit /b 1
+  goto :bye
 )
 if defined DEPFAIL call :say "       note: pip reported trouble with:%DEPFAIL%"
 echo.
@@ -142,7 +146,7 @@ if not exist "%TIDIR%\venv\Scripts\pythonw.exe" (
   echo  [WARN] pythonw.exe missing in the venv - starting with the console instead.
   python app.py
   if errorlevel 1 ( echo. & echo  [ERROR] Server crashed! & call :hold )
-  exit /b
+  goto :bye
 )
 start "" "%TIDIR%\venv\Scripts\pythonw.exe" "%TIDIR%\app.py"
 :: v4.01: verify it actually came up. Window mode has no console, so a crash used
@@ -164,7 +168,7 @@ echo  Waiting for the window to appear...
 "%TIDIR%\venv\Scripts\python.exe" "%TIDIR%\launcher_check.py" wait 35
 if errorlevel 2 goto :other_instance
 if errorlevel 1 goto :no_start
-exit /b
+goto :bye
 
 :other_instance
 echo.
@@ -178,7 +182,7 @@ echo  To start this version instead, close that window - or end pythonw.exe in
 echo  the Task Manager - and run this file again.
 echo.
 call :hold
-exit /b
+goto :bye
 
 :no_start
 echo.
@@ -207,7 +211,7 @@ python app.py
 :: happened at all.
 echo.
 call :hold
-exit /b
+goto :bye
 
 :: v4.67: a window that waits for a keypress is fine when somebody just
 :: double-clicked this file. After an update nobody is sitting in front of it --
@@ -234,3 +238,12 @@ if %HOLD% GEQ 12 (
   goto :eof
 )
 goto holdwait
+
+:: v4.70: exit /b ends the SCRIPT, not the console it is running in. Started by
+:: the update helper, the window then sat there at a fresh prompt -- work done,
+:: nothing left to say, and still on screen. exit ends the shell itself, which
+:: is what "close when TrackImage is up" has to mean. Only after an update:
+:: somebody who ran this from their own prompt keeps it.
+:bye
+if defined TI_AFTER_UPDATE exit
+exit /b
