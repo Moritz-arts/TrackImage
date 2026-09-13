@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.72 — 2026-09-13
+
+- An update is noticed the minute it is pushed, not five minutes later
+
 ## v4.71 — 2026-09-13
 
 - A backup holds the database, not the thumbnails, and Latest says it is beta
