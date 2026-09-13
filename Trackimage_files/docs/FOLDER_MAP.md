@@ -72,7 +72,7 @@ TrackImage_v4.57/                 <- what the ZIP unpacks to
     │
     ├─ _ti_update/                NOT shipped — only exists while an update installs
     └─ Userdata/                  NOT shipped — the launcher creates it
-        ├─ Databank/              SQLite (Flask instance_path)
+        ├─ Database/              SQLite (Flask instance_path)
         ├─ Logs/
         └─ ignored_tags.txt
 ```

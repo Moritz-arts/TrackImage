@@ -725,7 +725,7 @@ def _wipe_images_by_ids(db, ids, progress=None, chunk=5000):
 def _purge_own_folder_rows():
     """v4.44: forget images that were read out of TrackImage's own folder.
 
-    Before this version a scan would walk into Databank/.trash if TrackImage had
+    Before this version a scan would walk into Database/.trash if TrackImage had
     been installed inside the library, so pictures the user had deleted came back
     as .trash\\... rows -- and showed up as duplicates of the ones he kept. The
     rows are removed here; the FILES are not touched. What is in the trash stays

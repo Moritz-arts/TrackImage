@@ -96,13 +96,13 @@ def api_images():
 
     od = "ASC" if order=="asc" else "DESC"
     if sort=="folder":
-        # Ordner > Name > Datum
+        # folder > name > date
         q += f" ORDER BY natural_key(i.folder) {od}, natural_key(i.filename) ASC, i.file_date ASC"
     elif sort=="newest":
-        # Datum > Ordner > Name
+        # date > folder > name
         q += f" ORDER BY i.file_date {od}, natural_key(i.folder) ASC, natural_key(i.filename) ASC"
     else:
-        # Name > Ordner > Datum
+        # name > folder > date
         q += f" ORDER BY natural_key(i.filename) {od}, natural_key(i.folder) ASC, i.file_date ASC"
     q += " LIMIT ? OFFSET ?"; params.extend([per_page, offset])
     rows = db.execute(q, params).fetchall()

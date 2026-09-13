@@ -13,7 +13,7 @@ cd "$TIDIR" || exit 1
 # v4.51: these live under Userdata now. Making them where they used to be
 # made TrackImage take two empty folders for an older layout and back them
 # up as .pre449 on a brand new install.
-mkdir -p Userdata/Logs Userdata/Databank
+mkdir -p Userdata/Logs Userdata/Database
 echo ""
 echo "  ========================================"
 echo "   TrackImage v4.73 - Setup & Start"
