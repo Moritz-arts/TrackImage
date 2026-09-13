@@ -122,6 +122,13 @@ Do not create releases or tags yourself, and do not push to `main`.
   takes the copy through SQLite's backup API (the file is open and in WAL mode,
   so it is not a database on its own), drops `thumb_cache`, vacuums, and zips
   that. `.trash` is left out too: those are the user's own files.
+- **A branch URL is cached, a commit URL cannot be.** `raw.githubusercontent.com`
+  serves `…/main/…` with `max-age=300`, so for up to five minutes after a push
+  the check read the old version and said "up to date". `_check_latest()` asks
+  the API for the head commit first (with `_bust()`, a throwaway query
+  parameter, so no shared cache answers for it) and then reads `config.py`, the
+  changelog and the archive *at that commit* — paths whose content can never
+  change. It also means the archive installed is the one the check looked at.
 - **The update helper runs unseen, and reports afterwards.** It cannot show its
   work as it happens — TrackImage is closed for the swap — so it writes each
   step to a log, hands that log to `Userdata/Logs/update.log`, and
