@@ -77,6 +77,9 @@ RELEASES_PAGE = "https://github.com/%s/%s/releases"
 #: uploaded release asset used to.
 BRANCH_ZIP = "https://github.com/%s/%s/archive/refs/heads/%s.zip"
 TAG_ZIP = "https://github.com/%s/%s/archive/refs/tags/%s.zip"
+#: And of one commit, which is the same archive with a name that cannot
+#: point somewhere else a minute later.
+COMMIT_ZIP = "https://github.com/%s/%s/archive/%s.zip"
 BRANCH_PAGE = "https://github.com/%s/%s/tree/%s"
 
 _VERSION_RE = r'^VERSION\s*=\s*["\']([^"\']+)["\']'
@@ -194,6 +197,10 @@ def _get_json(url):
     req = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json",
         "User-Agent": _UA,
+        # Whatever sits between here and GitHub: this answer decides whether an
+        # update exists, so a stored one is worse than no answer at all.
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
     })
     with urllib.request.urlopen(req, timeout=_NET_TIMEOUT) as r:
         return json.loads(r.read().decode("utf-8", "replace"))
@@ -203,6 +210,8 @@ def _get_text(url):
     req = urllib.request.Request(url, headers={
         "Accept": "text/plain",
         "User-Agent": _UA,
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
     })
     with urllib.request.urlopen(req, timeout=_NET_TIMEOUT) as r:
         return r.read(_MAX_TEXT).decode("utf-8", "replace")
@@ -273,50 +282,70 @@ def changelog_between(ref, after, upto):
     return out
 
 
-def _branch_version():
-    """The version the branch carries, read out of its config.py."""
+def _bust(url):
+    """The same URL, with a throwaway parameter nobody reads.
+
+    GitHub serves both the API and raw files through a CDN that holds an answer
+    for a minute or five, and a shared cache has no business deciding when a
+    push becomes visible: a version pushed minutes ago read as "you are up to
+    date" until some edge node happened to expire. GitHub ignores the
+    parameter; the cache keys on the whole URL, so every check asks the origin.
+    """
+    return "%s%s_=%d" % (url, "&" if "?" in url else "?", int(time.time()))
+
+
+def _branch_version(ref=None):
+    """The version that commit carries, read out of its config.py.
+
+    Asked for by commit rather than by branch name wherever the commit is
+    known: a branch path is cached for five minutes, a commit path can never
+    go stale because that commit's content never changes.
+    """
     src = _get_text(RAW_VERSION % (GITHUB_OWNER, GITHUB_REPO,
-                                   urllib.parse.quote(BRANCH, safe="")))
+                                   urllib.parse.quote(ref or BRANCH, safe="")))
     m = re.search(_VERSION_RE, src, re.M)
     if not m:
-        raise RuntimeError("%s has no readable version." % BRANCH)
+        raise RuntimeError("%s has no readable version." % (ref or BRANCH))
     return m.group(1)
 
 
 def _check_latest():
-    """What main holds this minute."""
-    latest = _branch_version()
-    # What the branch last received. Nice to read before installing, and never
-    # a reason to fail: the version above is what the decision rests on.
-    sha = date = notes = ""
-    page = BRANCH_PAGE % (GITHUB_OWNER, GITHUB_REPO, BRANCH)
+    """What main holds this minute -- this minute, not five minutes ago."""
+    # The head commit first, because its id is what makes the rest fresh. Its
+    # message and date are only worth a line in the dialog, so a failure here
+    # costs nothing: the branch name still answers, a little later.
+    head = {}
     try:
-        head = _get_json(API_COMMIT % (GITHUB_OWNER, GITHUB_REPO,
-                                       urllib.parse.quote(BRANCH, safe="")))
-        sha = (head.get("sha") or "")[:7]
-        commit = head.get("commit") or {}
-        notes = _clean_notes(commit.get("message") or "")[:8000]
-        date = ((commit.get("committer") or {}).get("date") or "")[:10]
-        page = head.get("html_url") or page
+        head = _get_json(_bust(API_COMMIT % (GITHUB_OWNER, GITHUB_REPO,
+                                             urllib.parse.quote(BRANCH, safe=""))))
     except Exception:
         pass
+    ref = head.get("sha") or BRANCH
+    latest = _branch_version(ref)
+    commit = head.get("commit") or {}
     return {
         "latest": latest,
         "tag": "",
-        "sha": sha,
+        "ref": ref,
+        "sha": (head.get("sha") or "")[:7],
         "name": "%s · v%s" % (BRANCH, latest),
-        "notes": notes,
-        "page": page,
-        "published": date,
+        "notes": _clean_notes(commit.get("message") or "")[:8000],
+        "page": head.get("html_url") or (BRANCH_PAGE % (GITHUB_OWNER, GITHUB_REPO, BRANCH)),
+        "published": ((commit.get("committer") or {}).get("date") or "")[:10],
         "asset_name": "%s-%s.zip" % (GITHUB_REPO, BRANCH),
-        "asset_url": BRANCH_ZIP % (GITHUB_OWNER, GITHUB_REPO,
-                                   urllib.parse.quote(BRANCH, safe="")),
+        # The archive of the commit that was just read, where it is known --
+        # so what gets installed is what the check looked at, even if somebody
+        # pushes again while the download runs.
+        "asset_url": (BRANCH_ZIP % (GITHUB_OWNER, GITHUB_REPO,
+                                    urllib.parse.quote(BRANCH, safe=""))
+                      if ref == BRANCH else
+                      COMMIT_ZIP % (GITHUB_OWNER, GITHUB_REPO, ref)),
     }
 
 
 def _check_stable():
     """The newest version somebody has taken the pre-release mark off."""
-    data = _get_json(API_LATEST % (GITHUB_OWNER, GITHUB_REPO))
+    data = _get_json(_bust(API_LATEST % (GITHUB_OWNER, GITHUB_REPO)))
     tag = data.get("tag_name") or ""
     if not tag:
         raise RuntimeError("The newest release carries no tag.")
@@ -371,7 +400,7 @@ def check_for_update():
         "branch": BRANCH,
         "newer": newer,
         # What every version in between brought, not only the newest one.
-        "changes": changelog_between(found.get("tag") or BRANCH, VERSION,
+        "changes": changelog_between(found.get("ref") or found.get("tag") or BRANCH, VERSION,
                                      found["latest"]) if newer else [],
         # GitHub packs these archives on the fly, so their size is not known
         # until the download is running.
