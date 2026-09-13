@@ -116,6 +116,12 @@ Do not create releases or tags yourself, and do not push to `main`.
   `Trackimage_files/Userdata/Backup`, the last three are kept, and older ones
   are removed. Stray ones from the layout before that are *moved* there at
   start, never deleted — deleting somebody's backup is not a tidy-up.
+- **A backup carries the database, not the picture cache.** The thumbnails are
+  BLOBs *inside* `trackimage.db`, so zipping `Databank/` whole made a 1.5 GB
+  backup per update on a 15k library — three of them kept. `backup_userdata()`
+  takes the copy through SQLite's backup API (the file is open and in WAL mode,
+  so it is not a database on its own), drops `thumb_cache`, vacuums, and zips
+  that. `.trash` is left out too: those are the user's own files.
 - **The update helper runs unseen, and reports afterwards.** It cannot show its
   work as it happens — TrackImage is closed for the swap — so it writes each
   step to a log, hands that log to `Userdata/Logs/update.log`, and

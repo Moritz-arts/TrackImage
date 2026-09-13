@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -23,7 +24,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-from .config import APP_DIR, USERDATA_DIR, VERSION, DB_DIR, IGNORED_TAGS_FILE
+from .config import APP_DIR, USERDATA_DIR, VERSION, IGNORED_TAGS_FILE, app
 from .logging_setup import log
 from .appconfig import _app_config_load, _app_config_save
 
@@ -349,7 +350,7 @@ def check_for_update():
                 # marked as the latest release there is no stable version to
                 # offer. Saying so is more use than "not found".
                 base["error"] = ("No version has been declared stable yet. "
-                                 "Switch to Latest to follow the %s branch."
+                                 "Switch to Latest (Beta) to follow the %s branch."
                                  % BRANCH)
             else:
                 base["error"] = ("Branch %s is not there, or holds no "
@@ -467,9 +468,8 @@ def _verify(zip_path, expect_version=None):
 #: update carries across untouched. They used to sit beside the launchers, where
 #: they were the one piece of clutter nobody had asked for.
 BACKUP_DIR = os.path.join(USERDATA_DIR, "Backup")
-#: How many to keep. Each one holds the whole database, so a library of any size
-#: makes these big; the last few are a safety net, the ones before that are just
-#: disk.
+#: How many to keep. The last few are a safety net, the ones before that are
+#: just disk.
 BACKUP_KEEP = 3
 
 
@@ -488,28 +488,66 @@ def _prune_backups():
             pass
 
 
+def _db_copy_without_thumbs(dest):
+    """A consistent copy of the database at `dest`, with the thumbnails dropped.
+
+    Two reasons it is not a file copy. The database is open and in WAL mode
+    while this runs, so the file on disk is not a database on its own -- the
+    backup API takes the copy through SQLite and gets a whole one. And the
+    thumbnail cache lives in that same file as BLOBs, which is most of its size:
+    a 15k-picture library made 1.5 GB of backup per update, three of them kept.
+    Thumbnails are drawn again from the pictures the first time they are looked
+    at, so they are worth nothing in a backup and cost nearly all of it.
+    """
+    src = sqlite3.connect(app.config["DATABASE"])
+    try:
+        out = sqlite3.connect(dest)
+        try:
+            src.backup(out)
+            try:
+                out.execute("DELETE FROM thumb_cache")
+                out.commit()
+            except Exception:
+                pass                      # an older database may not have it
+            out.execute("VACUUM")         # the rows are gone, the pages are not
+        finally:
+            out.close()
+    finally:
+        src.close()
+
+
 def backup_userdata():
     """A copy of the database and the ignore list, in Userdata/Backup.
 
-    Logs and thumbnails are left out on purpose: logs are noise and thumbnails
-    are rebuilt from the pictures. What cannot be recreated is the database.
+    What cannot be recreated is the database -- tags, ratings, characters, the
+    duplicate signatures. Everything else under Databank is left out: logs are
+    noise, thumbnails are redrawn from the pictures, and `.trash` holds the
+    user's own files, which a backup has no business copying a second time.
     """
     os.makedirs(BACKUP_DIR, exist_ok=True)
     name = "Userdata-backup-v%s.zip" % VERSION
     dest = os.path.join(BACKUP_DIR, name)
     tmp = dest + ".part"
+    slim = os.path.join(BACKUP_DIR, "_db.part")
+    for p in (tmp, slim):
+        try:
+            os.remove(p)
+        except Exception:
+            pass
     try:
-        os.remove(tmp)
-    except Exception:
-        pass
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
-        for root, _dirs, files in os.walk(DB_DIR):
-            for fn in files:
-                full = os.path.join(root, fn)
-                z.write(full, os.path.join("Databank", os.path.relpath(full, DB_DIR)))
-        if os.path.isfile(IGNORED_TAGS_FILE):
-            z.write(IGNORED_TAGS_FILE, "ignored_tags.txt")
-    os.replace(tmp, dest)
+        _db_copy_without_thumbs(slim)
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
+            z.write(slim, os.path.join("Databank",
+                                       os.path.basename(app.config["DATABASE"])))
+            if os.path.isfile(IGNORED_TAGS_FILE):
+                z.write(IGNORED_TAGS_FILE, "ignored_tags.txt")
+        os.replace(tmp, dest)
+    finally:
+        for p in (slim, slim + "-wal", slim + "-shm", tmp):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
     _prune_backups()
     return dest, os.path.getsize(dest)
 

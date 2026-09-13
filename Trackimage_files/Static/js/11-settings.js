@@ -502,12 +502,12 @@ var _updChannel='stable';
 
 function channelBtns(){
   return '<span><button class="btn btn-sm'+(_updChannel==='stable'?' btn-primary':'')+'" onclick="setUpdateChannel(\'stable\')" title="Versions declared finished">Stable</button> '
-        +'<button class="btn btn-sm'+(_updChannel==='latest'?' btn-primary':'')+'" onclick="setUpdateChannel(\'latest\')" title="The main branch as it stands">Latest</button></span>';
+        +'<button class="btn btn-sm'+(_updChannel==='latest'?' btn-primary':'')+'" onclick="setUpdateChannel(\'latest\')" title="The main branch as it stands \u2014 untested, may carry bugs">Latest (Beta)</button></span>';
 }
 
 function channelHintHtml(){
   return (_updChannel==='latest')
-    ? 'Every change, as soon as it reaches the <b>main</b> branch \u2014 the version rises with each one, so an update can arrive several times a day. Newest work first, and the first to meet whatever it got wrong.'
+    ? '<b style="color:var(--danger)">Beta:</b> these versions go out as soon as they are pushed, with nobody having used them first \u2014 expect the occasional bug, and switch back to Stable if one gets in your way. Every change, as soon as it reaches the <b>main</b> branch \u2014 the version rises with each one, so an update can arrive several times a day. Newest work first, and the first to meet whatever it got wrong.'
     : 'Only versions that have been looked at and released. Fewer updates, each one somebody decided was ready to hand out.';
 }
 
@@ -527,7 +527,7 @@ function updateCardHtml(){
    +'<div class="proc-row" style="margin-top:16px"><label>Check automatically at start</label>'
    +'<label class="switch"><input id="upd-auto" type="checkbox" onchange="setAutoCheck(this.checked)"><span class="slider"></span></label></div>'
    +'<div class="proc-hint">Off by default. TrackImage opens no connection of its own \u2014 with this on, it asks GitHub once per start whether the chosen channel carries a newer version, and nothing else.</div>'
-   +'<div class="proc-hint" style="margin-top:10px">An update downloads that version straight from the repository, checks the archive, copies the database to <b>Trackimage_files/Userdata/Backup</b>, and then restarts into the new version \u2014 a window shows what it is doing while TrackImage is closed. Your pictures, database, settings and the tagging model stay where they are. If the swap fails at any point the previous version is put back.</div>'
+   +'<div class="proc-hint" style="margin-top:10px">An update downloads that version straight from the repository, checks the archive, copies the database — without the thumbnail cache, which is redrawn from your pictures — to <b>Trackimage_files/Userdata/Backup</b>, and then restarts into the new version \u2014 a window shows what it is doing while TrackImage is closed. Your pictures, database, settings and the tagging model stay where they are. If the swap fails at any point the previous version is put back.</div>'
    +'</div>';
 }
 
@@ -542,7 +542,11 @@ async function setUpdateChannel(name){
   try{r=await api('/api/update/channel',{method:'POST',body:JSON.stringify({channel:name})});}
   catch(e){r={error:String(e)};}
   if(r.error){_updChannel=prev;_redrawChannel();showToast('Could not switch channel','error');return;}
-  showToast(name==='latest'?'Following the main branch':'Following stable versions','success');
+  /* No 'success' for the beta channel: the only toast styles are the default
+     and a green one, and green is the wrong thing to say about a channel whose
+     point is that nobody has tried the version yet. */
+  showToast(name==='latest'?'Following the main branch — beta, bugs included':'Following stable versions',
+            name==='latest'?'':'success');
   checkUpdates();
 }
 
