@@ -24,7 +24,7 @@ if not exist "Userdata\Logs" md "Userdata\Logs"
 if not exist "Userdata\Databank" md "Userdata\Databank"
 echo.
 echo  ========================================
-echo   TrackImage v4.70 - Setup ^& Start
+echo   TrackImage v4.71 - Setup ^& Start
 echo  ========================================
 echo.
 python --version >nul 2>&1

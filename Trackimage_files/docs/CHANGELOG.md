@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.71 — 2026-09-13
+
+- A backup holds the database, not the thumbnails, and Latest says it is beta
+
 ## v4.70 — 2026-09-13
 
 - The launcher window closes when TrackImage is up, instead of returning to a prompt
