@@ -771,7 +771,11 @@ restart() {
   # itself. Unlinking a running script is safe -- the shell holds it open by
   # descriptor -- and every caller exits immediately afterwards.
   handover
-  rm -rf "$STAGE"
+  # Both names for the staging folder. $STAGE was worked out before the folder
+  # could be renamed, so after a rename it points at a path that no longer
+  # exists and _ti_update survived the update it belonged to -- which is
+  # exactly what it did.
+  rm -rf "$STAGE" "$NEWROOT/_ti_update"
   rm -f "$0"
   # Nobody is sitting in front of the window the launcher may open, so it must
   # not wait for a keypress.
@@ -858,6 +862,7 @@ _STALE = (
     ".github",
     "TrackImage-update.log",    # an update log, now kept in Userdata/Logs
     "docs",                     # moved into Trackimage_files in v4.65
+    "_ti_update",               # the staging folder, if an update left it behind
 )
 
 
