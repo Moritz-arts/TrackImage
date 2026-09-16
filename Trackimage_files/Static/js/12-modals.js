@@ -15,13 +15,19 @@ function showModal(opts){
         (opts.buttons||[]).forEach(function(b){h+='<button class="modal-btn '+(b.cls||'')+'" data-key="'+esc(b.key)+'">'+esc(b.label)+'</button>';});
         h+='</div></div>';bg.innerHTML=h;
         function done(key){bg.remove();document.removeEventListener('keydown',onKey,true);resolve(key);}
+        /* A click only counts as "on the backdrop" when the press STARTED there.
+           Releasing over the backdrop after pressing inside the box — a suggestion
+           that closed under the cursor, a text selection dragged outwards — makes
+           the click land on bg and silently cancelled the dialog. */
+        var downOnBg=false;
+        bg.addEventListener('mousedown',function(e){downOnBg=(e.target===bg);});
         function onKey(e){
             if(e.key==='Escape'){var acl=bg.querySelector('.ac-list.open');if(acl){acl.classList.remove('open');e.stopPropagation();return;}e.stopPropagation();done(null);return;}
             if(e.key==='Enter'&&opts.input){var acl2=bg.querySelector('.ac-list.open');if(acl2)return;var inp=bg.querySelector('.modal-input');if(inp){e.preventDefault();var pk=(opts.buttons.find(function(b){return b.cls&&b.cls.indexOf('primary')>=0;})||opts.buttons[0]);done({key:pk.key,value:inp.value});return;}}
             if(e.key==='Enter'&&!opts.input){var pk=(opts.buttons.find(function(b){return b.cls&&b.cls.indexOf('primary')>=0;}));if(pk){e.preventDefault();done(pk.key);}}
         }
         bg.addEventListener('click',function(e){
-            if(e.target===bg){done(null);return;}
+            if(e.target===bg){if(downOnBg)done(null);return;}
             var btn=e.target.closest('.modal-btn');if(!btn)return;
             var key=btn.dataset.key;
             if(opts.input){var inp=bg.querySelector('.modal-input');done(key==='cancel'?null:{key:key,value:inp?inp.value:''});}
@@ -44,7 +50,12 @@ async function showConfirm(msg,buttons){
 }
 
 async function showPrompt(msg,defaultVal,hint,acOpts){
-    var body=msg+'<input class="modal-input" value="'+(defaultVal!=null?esc(String(defaultVal)):'')+'">'+(hint?'<div class="modal-hint">'+hint+'</div>':'');
+    /* With autocomplete the input gets a wrapper of its own: .ac-list sits at
+       top:100% of its parent, and that parent used to be the whole modal body —
+       so the list opened below the hint and hung out over the backdrop instead
+       of dropping right under the input. */
+    var inp='<input class="modal-input" value="'+(defaultVal!=null?esc(String(defaultVal)):'')+'">';
+    var body=msg+(acOpts?'<div class="ac-wrap">'+inp+'</div>':inp)+(hint?'<div class="modal-hint">'+hint+'</div>':'');
     var r=await showModal({body:body,input:true,buttons:[{label:'Cancel',key:'cancel'},{label:'OK',key:'ok',cls:'primary'}],
         afterMount:acOpts?function(bg){var inp=bg.querySelector('.modal-input');if(inp)attachAutocomplete(inp,acOpts);}:null});
     return r&&r.key==='ok'?r.value:null;
@@ -138,9 +149,14 @@ function attachAutocomplete(input,opts){
         else if(e.key==='Enter'){if(idx>=0){e.preventDefault();e.stopPropagation();pick(idx);}else{items=[];list.classList.remove('open');idx=-1;}}
         else if(e.key==='Escape'){items=[];list.classList.remove('open');idx=-1;}
     },true);
-    list.addEventListener('mousedown',function(e){
-        e.preventDefault();/* prevent blur */
+    list.addEventListener('mousedown',function(e){e.preventDefault();/* prevent blur */});
+    /* Picking happens on click, not on mousedown: hiding the list under the
+       cursor moved the mouseup to whatever was behind it, so the click landed
+       on the modal backdrop and closed the dialog instead of taking the name.
+       Only the top rows, still over the modal box, ever worked. */
+    list.addEventListener('click',function(e){
         var el=e.target.closest('.ac-item');if(!el)return;
+        e.stopPropagation();
         pick(parseInt(el.dataset.idx));
     });
     input.addEventListener('blur',function(){setTimeout(function(){items=[];list.classList.remove('open');idx=-1;},150);});
