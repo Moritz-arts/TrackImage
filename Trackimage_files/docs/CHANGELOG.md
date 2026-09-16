@@ -5,6 +5,11 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.76 — 2026-09-16
+
+- Rename: clicking a suggested name takes it instead of closing the dialog
+- Full view: hiding the info panel no longer leaves a white bar beside it
+
 ## v4.75 — 2026-09-13
 
 - The automatic check says which channel it looked at
