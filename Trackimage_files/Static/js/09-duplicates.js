@@ -45,7 +45,7 @@ var _em=sr.error;S._dupQuery=null;return dupShellOpen()+'<div class="main" id="m
 }
 S._dupQuery.allMatches=(sr&&sr.similar)||[];
 var _best=0;S._dupQuery.allMatches.forEach(function(m){if((m.similarity||0)>_best)_best=m.similarity;});
-if(S._dupQuery.mode!=='tags')S.dupThreshold=S._dupQuery.allMatches.length?Math.min(50,Math.max(0,Math.ceil((100-_best)/5)*5)):30;
+if(S._dupQuery.mode!=='tags')S.dupThreshold=S._dupQuery.allMatches.length?Math.min(50,dupSnap(Math.max(0,100-_best))):30;
 }
 var _isTagQ=S._dupQuery.mode==='tags';
 var _qt=_isTagQ?(S.simMatch||70):(S.dupThreshold!=null?S.dupThreshold:30);
@@ -86,7 +86,9 @@ h+='<div style="display:flex;align-items:center;gap:8px;flex:1 1 260px;min-width
    hash -- the only setting that answers "which of these are the SAME file"
    rather than "which look alike". The server already accepted it; the control
    simply never offered it. */
-h+='<input type="range" style="flex:1;min-width:100px" class="dup-slider" min="'+(tagMode?50:0)+'" max="'+(tagMode?95:50)+'" step="5" value="'+threshold+'" oninput="onDupSlider(this.value)" />';
+/* Pixel mode walks DUP_STEPS by position: single percent steps up to 10, where
+   a copy and a near-copy are told apart, fives beyond. */
+h+='<input type="range" style="flex:1;min-width:100px" class="dup-slider" min="'+(tagMode?50:0)+'" max="'+(tagMode?95:DUP_STEPS.length-1)+'" step="'+(tagMode?5:1)+'" value="'+(tagMode?threshold:dupStepIdx(threshold))+'" oninput="onDupSlider(this.value)" />';
 h+='<span style="font-size:13px;font-weight:600;color:var(--accent);min-width:30px" id="dup-threshold-val">'+threshold+'%</span></div>';
 if(!tagMode)h+='<label style="display:flex;align-items:center;gap:5px;flex:none;font-size:12px;color:var(--text-secondary);cursor:pointer;white-space:nowrap" title="Only keep matches that also share at least 30% of their tags"><input type="checkbox" '+(S.dupVerify?'checked':'')+' onchange="toggleDupVerify(this.checked)">Verify with tags</label>';
 var sortMode=S.dupSort||'size';
@@ -156,6 +158,16 @@ var _dupReqSeq=0;
 
 function _dupThr(){return S.dupThreshold!=null?S.dupThreshold:5;}
 
+/* Max difference, in percent of the 256-bit hash. Below 10 one step is about
+   2.5 bits: measured on real photographs a recompressed or downscaled copy
+   lands 2-6 bits away -- 1-3% -- which the old steps of five jumped straight
+   over from 0 to 5. */
+var DUP_STEPS=[0,1,2,3,4,5,6,7,8,9,10,15,20,25,30,35,40,45,50];
+
+function dupStepIdx(p){p=+p||0;for(var i=0;i<DUP_STEPS.length;i++)if(DUP_STEPS[i]>=p)return i;return DUP_STEPS.length-1;}
+
+function dupSnap(p){return DUP_STEPS[dupStepIdx(p)];}
+
 function dupQueryBox(){
 var q=S._dupQuery;var inner;
 if(q){
@@ -180,7 +192,7 @@ var z=document.getElementById('dup-dropzone');if(z)z.innerHTML='<div class="spin
    mode without asking for it again. It lives in this tab and nowhere else --
    it is never uploaded to storage, never written to the database, and it is
    dropped the moment the query is cleared or the page is left. */
-S._dupQuery={thumb:r.thumb,label:r.filename,allMatches:r.matches,file:file,mode:_tagQ?'tags':undefined};if(!S.simMode)S.dupThreshold=r.best_similarity!=null?Math.min(50,Math.max(5,Math.ceil((100-r.best_similarity)/5)*5)):30;S._collapsedGroups=new Set();render();}
+S._dupQuery={thumb:r.thumb,label:r.filename,allMatches:r.matches,file:file,mode:_tagQ?'tags':undefined};if(!S.simMode)S.dupThreshold=r.best_similarity!=null?Math.min(50,Math.max(5,dupSnap(100-r.best_similarity))):30;S._collapsedGroups=new Set();render();}
 
 function dupBoxCtx(e){e.preventDefault();e.stopPropagation();hideCtx();var m=document.createElement('div');m.className='ctx-menu';m.id='ctx-menu';m.innerHTML='<div class="ctx-menu-item" onclick="hideCtx();dupPasteFromClipboard()">Paste image to scan</div>';document.body.appendChild(m);var x=e.clientX,y=e.clientY;if(x+m.offsetWidth>window.innerWidth)x=window.innerWidth-m.offsetWidth-4;if(y+m.offsetHeight>window.innerHeight)y=window.innerHeight-m.offsetHeight-4;m.style.left=x+'px';m.style.top=y+'px';}
 
