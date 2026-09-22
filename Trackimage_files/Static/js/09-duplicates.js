@@ -94,6 +94,7 @@ h+='<div style="display:flex;gap:4px;align-items:center;flex:none;white-space:no
 h+='<button class="btn btn-sm'+(sortMode==='size'?' btn-primary':'')+'" onclick="setDupSort(\'size\')" style="padding:3px 8px;font-size:12px">Size</button>';
 h+='<button class="btn btn-sm'+(sortMode==='similarity_desc'?' btn-primary':'')+'" onclick="setDupSort(\'similarity_desc\')" style="padding:3px 8px;font-size:12px">Most similar</button>';
 h+='<button class="btn btn-sm'+(sortMode==='similarity_asc'?' btn-primary':'')+'" onclick="setDupSort(\'similarity_asc\')" style="padding:3px 8px;font-size:12px">Least similar</button></div>';
+if(!tagMode&&!S.dupShowIgnored)h+='<button class="btn btn-sm btn-warning" id="dup-smart-btn" onclick="dupSmartClean()" style="padding:3px 10px;font-size:12px;flex:none'+(threshold===0?'':';opacity:.5')+'" title="Keep the best copy of every group and move the lesser ones to the trash — at Max difference 0% only, and only copies that are the same picture pixel for pixel">✨ Smart clean</button>';
 if(showIgnored&&(S.dupIgnoredCount||S.dupShowIgnored)){h+='<span style="display:flex;align-items:center;gap:6px;margin-left:14px;flex:none;white-space:nowrap;font-size:12px">'+'<button class="btn btn-sm'+(S.dupShowIgnored?' btn-primary':'')+'" onclick="dupToggleShowIgnored()" title="Switch between the normal list and the groups you marked as wanted variants">'+(S.dupShowIgnored?'Showing ignored':'Ignored')+'</button>'+(S.dupShowIgnored?'<button class="btn btn-sm" onclick="dupRestoreAll()" title="Restore every ignored group at once">Restore all</button>':'')+'</span>';}
 h+='<span style="margin-left:auto;flex:none;white-space:nowrap;font-size:13px;color:var(--text-secondary)" id="dup-stats">'+stats+'</span></div>';
 return h;}
@@ -203,4 +204,57 @@ async function findSimilar(imgId){
 var _fn='image';try{if(S.dupGroups)S.dupGroups.forEach(function(g){g.images.forEach(function(d){if(d.id===imgId&&d.filename)_fn=d.filename;});});if(S.images){var _i=S.images.find(function(x){return x.id===imgId;});if(_i&&_i.filename)_fn=_i.filename;}}catch(e){}
 closeDetail();
 S.page='duplicates';S.simMode=false;S._dupQuery={thumb:'/thumb/'+imgId,label:_fn,imgId:imgId,allMatches:null};S._collapsedGroups=new Set();updateNav();pushHistory('duplicates');render();
+}
+
+/* ---- Smart clean -----------------------------------------------------------
+   Keeps the best copy of every group -- most pixels, then the largest file,
+   which at the same size means the least compression -- and moves the rest to
+   the trash. Only at Max difference 0%: anything looser lets pictures into a
+   group that are merely alike. And even there the hash is not taken at its
+   word. It cannot see eyes that are open in one copy and shut in another, a
+   hand that closed, or a colour that was changed, so the server compares every
+   copy with the one that stays, pixel against pixel, and a copy that differs
+   anywhere stays too. What is removed is in the trash, and Ctrl+Z brings it back. */
+async function dupSmartClean(){
+if(S.simMode||(S._dupQuery&&S._dupQuery.mode==='tags'))return;
+var thr=S._dupQuery?S.dupThreshold:_dupThr();
+if(thr!==0)return showToast('Smart clean runs at Max difference 0% only — anything looser groups pictures that are merely alike','error');
+var groups=(S.dupGroups||[]).map(function(g){return (g.images||g).map(function(i){return i.id;});});
+if(S._dupQuery&&S._dupQuery.imgId&&groups.length)groups[0].push(S._dupQuery.imgId);
+groups=groups.filter(function(g){return g.length>1;});
+if(!groups.length)return showToast('No duplicate groups to clean');
+var btn=document.getElementById('dup-smart-btn');
+if(btn){btn.disabled=true;btn.textContent='Comparing pixels…';}
+var n=groups.reduce(function(a,g){return a+g.length;},0);
+showToast('Comparing '+n+' pictures pixel by pixel…');
+var plan=null;
+try{plan=await api('/api/duplicates/smart-clean',{method:'POST',body:JSON.stringify({groups:groups})});}catch(e){plan={error:String(e)};}
+if(btn){btn.disabled=false;btn.textContent='✨ Smart clean';}
+if(!plan||plan.error)return showToast('Smart clean: '+((plan&&plan.error)||'failed'),'error');
+var rm=plan.remove||[],kept=(plan.skipped||[]).length;
+if(!rm.length)return showToast('Nothing to clean'+(kept?' — '+kept+' cop'+(kept!==1?'ies differ':'y differs')+' from the best one and stay':''));
+var ok=await showConfirm('<b>Smart clean</b><br><br>Keeps the best copy of '+plan.keep.length+' group'+(plan.keep.length!==1?'s':'')
+  +' — most pixels, then the largest file — and moves <strong>'+rm.length+' lesser cop'+(rm.length!==1?'ies':'y')+'</strong> ('+fmtBytes(plan.bytes||0)+') to the trash.'
+  +'<br><br>Every one was compared with the copy that stays, pixel by pixel: only copies that are the same picture everywhere are removed.'
+  +(kept?' <strong>'+kept+'</strong> differ — eyes, hands, colour or framing — or could not be read, and stay.':'')
+  +'<br><br>Ctrl+Z brings them back.',[{label:'Cancel',key:'cancel'},{label:'Move '+rm.length+' to trash',key:'ok',cls:'danger'}]);
+if(!ok)return;
+var r=null;
+try{r=await api('/api/duplicates/smart-clean',{method:'POST',body:JSON.stringify({apply:true,remove:rm.map(function(p){return {id:p.id,keep:p.keep};})})});}catch(e){r={error:String(e)};}
+if(!r||r.error)return showToast('Smart clean: '+((r&&r.error)||'failed'),'error');
+if(r.trash_ids&&r.trash_ids.length)pushUndo({type:'delete_bulk',trashIds:r.trash_ids});
+showToast(r.deleted+' cop'+(r.deleted!==1?'ies':'y')+' moved to the trash'+((r.errors||[]).length?' — '+r.errors.length+' could not be moved':''),'success',true);
+var gone=new Set(rm.map(function(p){return p.id;}));
+S.selectedImages.clear();
+(S.dupGroups||[]).forEach(function(g){var a=g.images||g;for(var i=a.length-1;i>=0;i--){if(gone.has(a[i].id))a.splice(i,1);}});
+if(S._dupQuery){
+  /* the slider re-filters from allMatches, which would bring the deleted back */
+  S._dupQuery.allMatches=(S._dupQuery.allMatches||[]).filter(function(m){return !gone.has(m.id);});
+  if(gone.has(S._dupQuery.imgId)){clearDupQuery();Promise.all([loadImagesPreserve(),loadFolders(),loadCharacters(),loadStats()]);return;}
+}else S.dupGroups=S.dupGroups.filter(function(g){return (g.images||g).length>1;});
+var dr=document.getElementById('dup-results');if(dr)dr.innerHTML=renderDupGroups(S.dupGroups);
+var tot=S.dupGroups.reduce(function(a,g){return a+(g.images||g).length;},0);
+var st=document.getElementById('dup-stats');if(st)st.textContent=S.dupGroups.length+' group'+(S.dupGroups.length!==1?'s':'')+' · '+tot+' images';
+updateDupSelectionUI();
+Promise.all([loadImagesPreserve(),loadFolders(),loadCharacters(),loadStats()]);
 }
