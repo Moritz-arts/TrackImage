@@ -96,7 +96,6 @@ h+='<div style="display:flex;gap:4px;align-items:center;flex:none;white-space:no
 h+='<button class="btn btn-sm'+(sortMode==='size'?' btn-primary':'')+'" onclick="setDupSort(\'size\')" style="padding:3px 8px;font-size:12px">Size</button>';
 h+='<button class="btn btn-sm'+(sortMode==='similarity_desc'?' btn-primary':'')+'" onclick="setDupSort(\'similarity_desc\')" style="padding:3px 8px;font-size:12px">Most similar</button>';
 h+='<button class="btn btn-sm'+(sortMode==='similarity_asc'?' btn-primary':'')+'" onclick="setDupSort(\'similarity_asc\')" style="padding:3px 8px;font-size:12px">Least similar</button></div>';
-if(!tagMode&&!S.dupShowIgnored)h+='<button class="btn btn-sm btn-warning" id="dup-smart-btn" onclick="dupSmartClean()" style="padding:3px 10px;font-size:12px;flex:none'+(threshold<=SMART_MAX?'':';opacity:.5')+'" title="Keep the best copy of every group and move the lesser ones to the trash — up to Max difference '+SMART_MAX+'%, and only copies that are the same picture pixel for pixel">✨ Smart clean</button>';
 if(showIgnored&&(S.dupIgnoredCount||S.dupShowIgnored)){h+='<span style="display:flex;align-items:center;gap:6px;margin-left:14px;flex:none;white-space:nowrap;font-size:12px">'+'<button class="btn btn-sm'+(S.dupShowIgnored?' btn-primary':'')+'" onclick="dupToggleShowIgnored()" title="Switch between the normal list and the groups you marked as wanted variants">'+(S.dupShowIgnored?'Showing ignored':'Ignored')+'</button>'+(S.dupShowIgnored?'<button class="btn btn-sm" onclick="dupRestoreAll()" title="Restore every ignored group at once">Restore all</button>':'')+'</span>';}
 h+='<span style="margin-left:auto;flex:none;white-space:nowrap;font-size:13px;color:var(--text-secondary)" id="dup-stats">'+stats+'</span></div>';
 return h;}
@@ -224,44 +223,63 @@ S.page='duplicates';S.simMode=false;S._dupQuery={thumb:'/thumb/'+imgId,label:_fn
 }
 
 /* ---- Smart clean -----------------------------------------------------------
-   Keeps the best copy of every group -- the most pixels AND the largest file,
-   which at the same size means the least compression; where those are two
-   different copies, both stay -- and moves the rest to the trash. Up to Max
-   difference SMART_MAX, and even there the hash is not taken at its word: a
-   recompressed copy and a shut eye sit the same few bits apart. The server
-   compares every copy with the one that stays, pixel against pixel, and a copy
-   that is moved by a pixel or changed anywhere stays too. GIFs, videos and
-   animated pictures are never candidates. What is removed is in the trash, and
-   Ctrl+Z brings it back. */
-async function dupSmartClean(){
-if(S.simMode||(S._dupQuery&&S._dupQuery.mode==='tags'))return;
-var thr=S._dupQuery?S.dupThreshold:_dupThr();
-if(thr>SMART_MAX)return showToast('Smart clean runs up to Max difference '+SMART_MAX+'% — beyond that the groups are mostly pictures that are merely alike','error');
-var groups=(S.dupGroups||[]).map(function(g){return (g.images||g).map(function(i){return i.id;});});
-if(S._dupQuery&&S._dupQuery.imgId&&groups.length)groups[0].push(S._dupQuery.imgId);
-groups=groups.filter(function(g){return g.length>1;});
-if(!groups.length)return showToast('No duplicate groups to clean');
-var btn=document.getElementById('dup-smart-btn');
-if(btn){btn.disabled=true;btn.textContent='Comparing pixels…';}
-var n=groups.reduce(function(a,g){return a+g.length;},0);
-showToast('Comparing '+n+' pictures pixel by pixel…');
+   One group at a time, on purpose: the dialog shows every picture of that group
+   -- the one that stays, the ones that go and why the rest stay too -- and a
+   list of that is something one can actually read before saying yes.
+
+   The copy that stays has the most pixels AND the least compression. The
+   compression is measured in the pixels (the JPEG grid, see _sc_blockiness),
+   not guessed from the file size, which says nothing between formats: a PNG
+   saved from a JPEG 50 is three times the size and exactly as damaged. Where
+   one copy has more pixels and another less compression, both stay. Up to Max
+   difference SMART_MAX, and even there the hash is not taken at its word: the
+   server compares every copy with the one that stays, pixel against pixel, and
+   a copy that is moved by a pixel or changed anywhere stays. GIFs, videos and
+   animated pictures are never candidates. Ctrl+Z brings back what went. */
+function dupSmartOn(){return !(S.simMode||(S._dupQuery&&S._dupQuery.mode==='tags')||S.dupShowIgnored);}
+
+function dupSmartThr(){return S._dupQuery?S.dupThreshold:_dupThr();}
+
+function dupSmartBtn(gi){
+if(!dupSmartOn())return '';
+var ok=dupSmartThr()<=SMART_MAX;
+return '<button class="btn btn-sm btn-warning" onclick="event.stopPropagation();dupSmartCleanGroup('+gi+')" style="margin-right:6px'+(ok?'':';opacity:.5')+'" title="'+(ok?'Keep the best copy of this group and move the lesser copies to the trash — only copies that are the same picture, pixel for pixel':'Set Max difference to '+SMART_MAX+'% or less first')+'">✨ Smart clean</button>';}
+
+/* How much JPEG damage the pixels show, in words. */
+function _scGrade(g){if(g==null)return '';if(g<=1.03)return 'no visible compression';if(g<=1.15)return 'light compression';if(g<=1.35)return 'medium compression';if(g<=1.6)return 'strong compression';return 'heavy compression';}
+
+function _scRow(c,note,col){
+var im=findImageAnywhere(c.id);var th='/thumb/'+c.id+(im&&im.fphash?'?h='+im.fphash:'');
+var bits=[];if(c.w)bits.push(c.w+'×'+c.h);if(c.size)bits.push(fmtBytes(c.size));if(c.fmt)bits.push(c.fmt);var gr=_scGrade(c.grid);if(gr)bits.push(gr);
+return '<div style="display:flex;gap:10px;align-items:center;margin:6px 0"><img src="'+th+'" style="width:46px;height:46px;object-fit:cover;border-radius:5px;flex:none;border:1px solid var(--border)"/>'
+ +'<div style="min-width:0;font-size:12px;line-height:1.45"><div style="font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.filename)+'</div>'
+ +'<div style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📁 '+esc(c.folder||'')+'</div>'
+ +'<div style="color:var(--text-secondary)">'+esc(bits.join(' · '))+'</div>'
+ +(note?'<div style="color:'+(col||'var(--text-secondary)')+'">'+esc(note)+'</div>':'')+'</div></div>';}
+
+async function dupSmartCleanGroup(gi){
+if(!dupSmartOn())return;
+if(dupSmartThr()>SMART_MAX)return showToast('Smart clean works up to Max difference '+SMART_MAX+'% — beyond that a group is mostly pictures that are merely alike','error');
+var g=S.dupGroups&&S.dupGroups[gi];if(!g)return;
+var ids=(g.images||g).map(function(i){return i.id;});
+if(S._dupQuery&&S._dupQuery.imgId&&ids.indexOf(S._dupQuery.imgId)<0)ids.push(S._dupQuery.imgId);
+if(ids.length<2)return;
+showToast('Comparing '+ids.length+' pictures pixel by pixel…');
 var plan=null;
-try{plan=await api('/api/duplicates/smart-clean',{method:'POST',body:JSON.stringify({groups:groups})});}catch(e){plan={error:String(e)};}
-if(btn){btn.disabled=false;btn.textContent='✨ Smart clean';}
+try{plan=await api('/api/duplicates/smart-clean',{method:'POST',body:JSON.stringify({groups:[ids]})});}catch(e){plan={error:String(e)};}
 if(!plan||plan.error)return showToast('Smart clean: '+((plan&&plan.error)||'failed'),'error');
-var rm=plan.remove||[],kept=(plan.skipped||[]).length;
-/* why each copy stays, counted -- "differ" alone does not say whether that was
-   a moved frame, an eye or a GIF */
-var whys={};(plan.skipped||[]).forEach(function(k){whys[k.why]=(whys[k.why]||0)+1;});
-var whyTxt=Object.keys(whys).sort(function(x,y){return whys[y]-whys[x];}).map(function(w){return whys[w]+' × '+esc(w);}).join('<br>');
-var torn=plan.undecided||0;
-if(!rm.length)return showToast('Nothing to clean'+(kept?' — '+kept+' cop'+(kept!==1?'ies differ':'y differs')+' from the best one and stay':''));
-var ok=await showConfirm('<b>Smart clean</b><br><br>Keeps the best copy of '+plan.keep.length+' group'+(plan.keep.length!==1?'s':'')
-  +' — the one with the most pixels <i>and</i> the largest file — and moves <strong>'+rm.length+' lesser cop'+(rm.length!==1?'ies':'y')+'</strong> ('+fmtBytes(plan.bytes||0)+') to the trash.'
-  +'<br><br>Every one was compared with the copy that stays, pixel by pixel. Only a copy that is that picture at a lower quality goes — the same framing, not moved by a pixel, not changed anywhere.'
-  +(kept?'<br><br><strong>'+kept+' stay:</strong><br><span style="font-size:12px;color:var(--text-secondary)">'+whyTxt+'</span>':'')
-  +(torn?'<br><br>'+torn+' group'+(torn!==1?'s have':' has')+' one copy with more pixels and another with the larger file — both stay; that is yours to decide.':'')
-  +'<br><br>GIFs, videos and animated pictures are never removed. Ctrl+Z brings everything back.',[{label:'Cancel',key:'cancel'},{label:'Move '+rm.length+' to trash',key:'ok',cls:'danger'}]);
+var rm=plan.remove||[],best=plan.best||[],stay=plan.skipped||[];
+var h='<b>Smart clean — Group '+(gi+1)+'</b>';
+h+='<div style="margin-top:12px;font-weight:600;color:var(--success)">Stays'+(best.length>1?' — '+best.length+' copies, none better on both counts':'')+'</div>'
+ +(best.length>1?'<div style="font-size:12px;color:var(--text-muted)">More pixels in one, less compression in another — or formats whose compression cannot be compared (WebP, HEIC, AVIF). That is yours to decide.</div>':'');
+best.forEach(function(c){h+=_scRow(c,best.length>1?'':'most pixels, least compression','var(--success)');});
+if(rm.length){h+='<div style="margin-top:12px;font-weight:600;color:var(--danger)">Moves to the trash — '+rm.length+' ('+fmtBytes(plan.bytes||0)+')</div>';
+  rm.forEach(function(c){h+=_scRow(c,'the same picture, pixel for pixel, at a lower quality','var(--danger)');});}
+if(stay.length){h+='<div style="margin-top:12px;font-weight:600;color:var(--text-secondary)">Also stays</div>';
+  stay.forEach(function(c){h+=_scRow(c,c.why);});}
+if(!rm.length){await showConfirm('<div style="max-height:62vh;overflow:auto;padding-right:4px">'+h+'<div style="margin-top:12px">Nothing in this group can go without losing something.</div></div>',[{label:'OK',key:'ok',cls:'primary'}]);return;}
+h+='<div style="margin-top:12px;font-size:12px;color:var(--text-muted)">GIFs, videos and animated pictures are never removed. Ctrl+Z brings everything back.</div>';
+var ok=await showConfirm('<div style="max-height:62vh;overflow:auto;padding-right:4px">'+h+'</div>',[{label:'Cancel',key:'cancel'},{label:'Move '+rm.length+' to trash',key:'ok',cls:'danger'}]);
 if(!ok)return;
 var r=null;
 try{r=await api('/api/duplicates/smart-clean',{method:'POST',body:JSON.stringify({apply:true,remove:rm.map(function(p){return {id:p.id,keep:p.keep};})})});}catch(e){r={error:String(e)};}
@@ -270,14 +288,14 @@ if(r.trash_ids&&r.trash_ids.length)pushUndo({type:'delete_bulk',trashIds:r.trash
 showToast(r.deleted+' cop'+(r.deleted!==1?'ies':'y')+' moved to the trash'+((r.errors||[]).length?' — '+r.errors.length+' could not be moved':''),'success',true);
 var gone=new Set(rm.map(function(p){return p.id;}));
 S.selectedImages.clear();
-(S.dupGroups||[]).forEach(function(g){var a=g.images||g;for(var i=a.length-1;i>=0;i--){if(gone.has(a[i].id))a.splice(i,1);}});
+var a=g.images||g;for(var i=a.length-1;i>=0;i--){if(gone.has(a[i].id))a.splice(i,1);}
 if(S._dupQuery){
   /* the slider re-filters from allMatches, which would bring the deleted back */
   S._dupQuery.allMatches=(S._dupQuery.allMatches||[]).filter(function(m){return !gone.has(m.id);});
   if(gone.has(S._dupQuery.imgId)){clearDupQuery();Promise.all([loadImagesPreserve(),loadFolders(),loadCharacters(),loadStats()]);return;}
-}else S.dupGroups=S.dupGroups.filter(function(g){return (g.images||g).length>1;});
+}else S.dupGroups=S.dupGroups.filter(function(x){return (x.images||x).length>1;});
 var dr=document.getElementById('dup-results');if(dr)dr.innerHTML=renderDupGroups(S.dupGroups);
-var tot=S.dupGroups.reduce(function(a,g){return a+(g.images||g).length;},0);
+var tot=S.dupGroups.reduce(function(n,x){return n+(x.images||x).length;},0);
 var st=document.getElementById('dup-stats');if(st)st.textContent=S.dupGroups.length+' group'+(S.dupGroups.length!==1?'s':'')+' · '+tot+' images';
 updateDupSelectionUI();
 Promise.all([loadImagesPreserve(),loadFolders(),loadCharacters(),loadStats()]);
