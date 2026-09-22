@@ -96,7 +96,7 @@ h+='<div style="display:flex;gap:4px;align-items:center;flex:none;white-space:no
 h+='<button class="btn btn-sm'+(sortMode==='size'?' btn-primary':'')+'" onclick="setDupSort(\'size\')" style="padding:3px 8px;font-size:12px">Size</button>';
 h+='<button class="btn btn-sm'+(sortMode==='similarity_desc'?' btn-primary':'')+'" onclick="setDupSort(\'similarity_desc\')" style="padding:3px 8px;font-size:12px">Most similar</button>';
 h+='<button class="btn btn-sm'+(sortMode==='similarity_asc'?' btn-primary':'')+'" onclick="setDupSort(\'similarity_asc\')" style="padding:3px 8px;font-size:12px">Least similar</button></div>';
-if(!tagMode&&!S.dupShowIgnored)h+='<button class="btn btn-sm btn-warning" id="dup-smart-btn" onclick="dupSmartClean()" style="padding:3px 10px;font-size:12px;flex:none'+(threshold===0?'':';opacity:.5')+'" title="Keep the best copy of every group and move the lesser ones to the trash — at Max difference 0% only, and only copies that are the same picture pixel for pixel">✨ Smart clean</button>';
+if(!tagMode&&!S.dupShowIgnored)h+='<button class="btn btn-sm btn-warning" id="dup-smart-btn" onclick="dupSmartClean()" style="padding:3px 10px;font-size:12px;flex:none'+(threshold<=SMART_MAX?'':';opacity:.5')+'" title="Keep the best copy of every group and move the lesser ones to the trash — up to Max difference '+SMART_MAX+'%, and only copies that are the same picture pixel for pixel">✨ Smart clean</button>';
 if(showIgnored&&(S.dupIgnoredCount||S.dupShowIgnored)){h+='<span style="display:flex;align-items:center;gap:6px;margin-left:14px;flex:none;white-space:nowrap;font-size:12px">'+'<button class="btn btn-sm'+(S.dupShowIgnored?' btn-primary':'')+'" onclick="dupToggleShowIgnored()" title="Switch between the normal list and the groups you marked as wanted variants">'+(S.dupShowIgnored?'Showing ignored':'Ignored')+'</button>'+(S.dupShowIgnored?'<button class="btn btn-sm" onclick="dupRestoreAll()" title="Restore every ignored group at once">Restore all</button>':'')+'</span>';}
 h+='<span style="margin-left:auto;flex:none;white-space:nowrap;font-size:13px;color:var(--text-secondary)" id="dup-stats">'+stats+'</span></div>';
 return h;}
@@ -168,6 +168,11 @@ function dupStepIdx(p){p=+p||0;for(var i=0;i<DUP_STEPS.length;i++)if(DUP_STEPS[i
 
 function dupSnap(p){return DUP_STEPS[dupStepIdx(p)];}
 
+/* Smart clean decides by the pixels, not by the slider -- but beyond this the
+   groups fill with pictures that are merely alike, and nobody should have to
+   read a list of those to find the three copies in it. */
+var SMART_MAX=5;
+
 function dupQueryBox(){
 var q=S._dupQuery;var inner;
 if(q){
@@ -219,18 +224,19 @@ S.page='duplicates';S.simMode=false;S._dupQuery={thumb:'/thumb/'+imgId,label:_fn
 }
 
 /* ---- Smart clean -----------------------------------------------------------
-   Keeps the best copy of every group -- most pixels, then the largest file,
-   which at the same size means the least compression -- and moves the rest to
-   the trash. Only at Max difference 0%: anything looser lets pictures into a
-   group that are merely alike. And even there the hash is not taken at its
-   word. It cannot see eyes that are open in one copy and shut in another, a
-   hand that closed, or a colour that was changed, so the server compares every
-   copy with the one that stays, pixel against pixel, and a copy that differs
-   anywhere stays too. What is removed is in the trash, and Ctrl+Z brings it back. */
+   Keeps the best copy of every group -- the most pixels AND the largest file,
+   which at the same size means the least compression; where those are two
+   different copies, both stay -- and moves the rest to the trash. Up to Max
+   difference SMART_MAX, and even there the hash is not taken at its word: a
+   recompressed copy and a shut eye sit the same few bits apart. The server
+   compares every copy with the one that stays, pixel against pixel, and a copy
+   that is moved by a pixel or changed anywhere stays too. GIFs, videos and
+   animated pictures are never candidates. What is removed is in the trash, and
+   Ctrl+Z brings it back. */
 async function dupSmartClean(){
 if(S.simMode||(S._dupQuery&&S._dupQuery.mode==='tags'))return;
 var thr=S._dupQuery?S.dupThreshold:_dupThr();
-if(thr!==0)return showToast('Smart clean runs at Max difference 0% only — anything looser groups pictures that are merely alike','error');
+if(thr>SMART_MAX)return showToast('Smart clean runs up to Max difference '+SMART_MAX+'% — beyond that the groups are mostly pictures that are merely alike','error');
 var groups=(S.dupGroups||[]).map(function(g){return (g.images||g).map(function(i){return i.id;});});
 if(S._dupQuery&&S._dupQuery.imgId&&groups.length)groups[0].push(S._dupQuery.imgId);
 groups=groups.filter(function(g){return g.length>1;});
@@ -244,12 +250,18 @@ try{plan=await api('/api/duplicates/smart-clean',{method:'POST',body:JSON.string
 if(btn){btn.disabled=false;btn.textContent='✨ Smart clean';}
 if(!plan||plan.error)return showToast('Smart clean: '+((plan&&plan.error)||'failed'),'error');
 var rm=plan.remove||[],kept=(plan.skipped||[]).length;
+/* why each copy stays, counted -- "differ" alone does not say whether that was
+   a moved frame, an eye or a GIF */
+var whys={};(plan.skipped||[]).forEach(function(k){whys[k.why]=(whys[k.why]||0)+1;});
+var whyTxt=Object.keys(whys).sort(function(x,y){return whys[y]-whys[x];}).map(function(w){return whys[w]+' × '+esc(w);}).join('<br>');
+var torn=plan.undecided||0;
 if(!rm.length)return showToast('Nothing to clean'+(kept?' — '+kept+' cop'+(kept!==1?'ies differ':'y differs')+' from the best one and stay':''));
 var ok=await showConfirm('<b>Smart clean</b><br><br>Keeps the best copy of '+plan.keep.length+' group'+(plan.keep.length!==1?'s':'')
-  +' — most pixels, then the largest file — and moves <strong>'+rm.length+' lesser cop'+(rm.length!==1?'ies':'y')+'</strong> ('+fmtBytes(plan.bytes||0)+') to the trash.'
-  +'<br><br>Every one was compared with the copy that stays, pixel by pixel: only copies that are the same picture everywhere are removed.'
-  +(kept?' <strong>'+kept+'</strong> differ — eyes, hands, colour or framing — or could not be read, and stay.':'')
-  +'<br><br>Ctrl+Z brings them back.',[{label:'Cancel',key:'cancel'},{label:'Move '+rm.length+' to trash',key:'ok',cls:'danger'}]);
+  +' — the one with the most pixels <i>and</i> the largest file — and moves <strong>'+rm.length+' lesser cop'+(rm.length!==1?'ies':'y')+'</strong> ('+fmtBytes(plan.bytes||0)+') to the trash.'
+  +'<br><br>Every one was compared with the copy that stays, pixel by pixel. Only a copy that is that picture at a lower quality goes — the same framing, not moved by a pixel, not changed anywhere.'
+  +(kept?'<br><br><strong>'+kept+' stay:</strong><br><span style="font-size:12px;color:var(--text-secondary)">'+whyTxt+'</span>':'')
+  +(torn?'<br><br>'+torn+' group'+(torn!==1?'s have':' has')+' one copy with more pixels and another with the larger file — both stay; that is yours to decide.':'')
+  +'<br><br>GIFs, videos and animated pictures are never removed. Ctrl+Z brings everything back.',[{label:'Cancel',key:'cancel'},{label:'Move '+rm.length+' to trash',key:'ok',cls:'danger'}]);
 if(!ok)return;
 var r=null;
 try{r=await api('/api/duplicates/smart-clean',{method:'POST',body:JSON.stringify({apply:true,remove:rm.map(function(p){return {id:p.id,keep:p.keep};})})});}catch(e){r={error:String(e)};}

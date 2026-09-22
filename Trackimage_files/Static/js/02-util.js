@@ -365,7 +365,7 @@ var _tagCtx=(S._dupQuery?S._dupQuery.mode==='tags':S.simMode);
 if(!_tagCtx)val=DUP_STEPS[Math.max(0,Math.min(DUP_STEPS.length-1,val))];   /* a position, see DUP_STEPS */
 if(_tagCtx){S.simMatch=val;localStorage.setItem('ti_sim_match',String(val));}else S.dupThreshold=val;
 var el=document.getElementById('dup-threshold-val');if(el)el.textContent=val+'%';
-var _sb=document.getElementById('dup-smart-btn');if(_sb)_sb.style.opacity=(val===0?'':'.5');
+var _sb=document.getElementById('dup-smart-btn');if(_sb)_sb.style.opacity=(val<=SMART_MAX?'':'.5');
 if(S._dupQuery){var _qm=sortQueryMatches((S._dupQuery.allMatches||[]).filter(function(m){return m.similarity>=(_tagCtx?val:100-val);}));S.dupGroups=[{images:_qm,similarity:null}];var _r=document.getElementById('dup-results');if(_r)_r.innerHTML=renderDupGroups(S.dupGroups);var _st=document.getElementById('dup-stats');if(_st)_st.textContent=dupQueryStats(_qm.length,_tagCtx,(S._lastHashed||0));return;}
 clearTimeout(_dupSliderTimer);clearInterval(_dupComputeTimer);
 var r=document.getElementById('dup-results');if(r)r.innerHTML='<div class="dup-loading"><div class="spinner"></div>Filtering duplicates...</div>';

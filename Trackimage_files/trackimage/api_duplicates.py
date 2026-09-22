@@ -9,12 +9,12 @@ from flask import (
 import os
 import threading
 import time as _time
-from .config import HAS_PHASH, Image, app
+from .config import HAS_PHASH, Image, app, np
 from .logging_setup import log
 from .db import _db_commit_retry, _db_write_lock, _folder_args, _get_thread_db, get_db
 from .media import get_filepath_hash
 from .hashing import _sim_pct
-from .processing import _hash_progress, _proc, _proc_counts, _rate_eta
+from .processing import _hash_progress, _oriented_size, _proc, _proc_counts, _rate_eta
 from .duplicates import _compute_simtag_pairs, _dup_progress, _ensure_mem_pairs, _group_cache, _groups_from_db, _ignored_apply, _ignored_load, _ignored_lock, _ignored_pairs, _mem_pairs_ready, _popcount_func, _simgroup_cache, _simtag_cache, _simtag_groups, _simtag_lock, _simtag_progress, _tag_signature
 from .api_tags import _verify_by_tags
 
@@ -240,59 +240,130 @@ def api_duplicates_cancel():
 
 # ---- Smart clean -------------------------------------------------------------
 # A matching hash says two pictures LOOK alike at thumbnail scale, which is not
-# the same thing as being the same picture: at 0% difference the pHash still
-# cannot see eyes that are open in one copy and shut in the other, or a hand
-# that closed. So nothing is deleted on the strength of the hash. Every copy is
-# compared with the one that stays, pixel against pixel, and only a copy that is
-# the same picture everywhere -- block by block, not on average, so one changed
-# eye is enough to keep it -- goes to the trash.
+# the same thing as being the same picture. Measured on real photographs, a
+# recompressed copy sits 2-6 bits away -- and so does a shut eye, a tear or a
+# changed colour; a moved finger can sit at 0. So nothing is deleted on the
+# strength of the hash. Every copy is compared with the one that stays, pixel
+# against pixel, and it only goes when it is that picture at a lower quality:
+# the same framing, not moved by a single pixel, not changed anywhere.
+#
+# The limits below were calibrated on portraits, a painting, a close-up and a
+# synthetic picture, each saved at JPEG 85/70/50, as PNG and downscaled three
+# ways -- all of which must pass -- against the same pictures with the framing
+# moved by 1-3 px, a faint tear, an eyelid 24x10 px, +8% saturation, +3%
+# brightness and +5% contrast, all of which must be kept. Where the two came
+# close, the limit sits on the side of keeping: a duplicate left behind costs a
+# little disk, a picture deleted in error costs the picture.
 
-_SC_SIDE = 1024          # compared at this long edge; finer than any hash
-_SC_BLOCK = 16           # a 16 px block is about the size of an eye at that scale
-_SC_BLOCK_MAX = 12       # worst block, mean difference out of 255
-_SC_MEAN_MAX = 4         # whole picture, mean difference out of 255
+_SC_CAP = 1600           # compared at up to this long edge
+_SC_SHIFT = 0.8          # moved by a pixel or two: a shifted overlay fits better than the straight one
+_SC_LOCAL = 2.5          # one area stands out from the pair's own compression noise by this factor
+_SC_LOCAL_ABS = 6.0      # ... or by this much outright (luma, 8 px block means)
+_SC_LUMA = 0.6           # brightness of the whole picture
+_SC_MEDIAN = 1.0         # contrast / tone curve: every block moved a little
+_SC_CHROMA = 3.2         # colour, 16 px block means of Cb/Cr
+_SC_SHARP = 3.0          # detail lost or gained in one area, against the pair's own spread
 
 
 def _sc_load(path, box=None):
+    """Decoded, upright RGB -- or None for anything that moves. An animated GIF,
+    WebP or PNG is never a lesser copy of a still, whatever its size."""
     from PIL import ImageOps
     im = Image.open(path)
+    if getattr(im, "n_frames", 1) > 1 or getattr(im, "is_animated", False):
+        return None
     try:
-        im.draft("RGB", (box or (_SC_SIDE, _SC_SIDE)))   # JPEG decodes at a fraction
+        im.draft("RGB", (box or (_SC_CAP, _SC_CAP)))   # JPEG decodes at a fraction
     except Exception:
         pass
     im = ImageOps.exif_transpose(im)
     return im.convert("RGB")
 
 
+def _sc_blocks(x, bs):
+    h, w = x.shape[0] // bs, x.shape[1] // bs
+    return x[:h * bs, :w * bs].reshape((h, bs, w, bs) + x.shape[2:]).mean(axis=(1, 3))
+
+
 def _sc_same_picture(keep, other):
     """(True, '') when other is keep at a lower quality, else (False, why).
-    Both are PIL images, already decoded."""
-    from PIL import ImageChops
+    Both are decoded PIL images; keep has at least as many pixels."""
+    from PIL import ImageFilter
     kw, kh = keep.size
     ow, oh = other.size
-    if abs(kw / kh - ow / oh) > 0.01:
+    # The same framing: other is keep scaled, to within rounding. A crop of even
+    # a few pixels changes one side and not the other.
+    if abs(kh * ow / kw - oh) > max(1.5, 0.002 * oh):
         return False, "a different framing"
-    s = min(1.0, _SC_SIDE / max(kw, kh))
-    w, h = max(_SC_BLOCK, int(kw * s)), max(_SC_BLOCK, int(kh * s))
-    a = keep.resize((w, h), Image.BOX)
-    b = other.resize((w, h), Image.BOX)
-    d = ImageChops.difference(a, b)
-    r, g_, bl = d.split()
-    d = ImageChops.lighter(ImageChops.lighter(r, g_), bl)     # worst channel: colour counts
-    mean = sum(i * n for i, n in enumerate(d.histogram())) / float(w * h)
-    worst = d.resize((max(1, w // _SC_BLOCK), max(1, h // _SC_BLOCK)), Image.BOX).getextrema()[1]
-    if worst > _SC_BLOCK_MAX:
+    tw, th = (ow, oh) if kw * kh >= ow * oh else (kw, kh)
+    c = min(1.0, _SC_CAP / max(tw, th))
+    tw, th = max(32, round(tw * c)), max(32, round(th * c))
+    a = keep if keep.size == (tw, th) else keep.resize((tw, th), Image.LANCZOS)
+    b = other if other.size == (tw, th) else other.resize((tw, th), Image.LANCZOS)
+    A = np.asarray(a.convert("YCbCr"), np.float32)
+    B = np.asarray(b.convert("YCbCr"), np.float32)
+
+    # Moved by a pixel or two: slid over each other, some other offset fits
+    # better than none. For a true copy the straight overlay is always best
+    # (measured 1.4x or more); every shifted framing came in under 0.5x.
+    ya = np.asarray(a.convert("L").filter(ImageFilter.GaussianBlur(1)), np.float32)
+    yb = np.asarray(b.convert("L").filter(ImageFilter.GaussianBlur(1)), np.float32)
+    m, H, W = 3, ya.shape[0], ya.shape[1]
+    ref = yb[m:H - m, m:W - m]
+    def _e(dx, dy):
+        return float(np.abs(ya[m + dy:H - m + dy, m + dx:W - m + dx] - ref).mean())
+    e0 = _e(0, 0)
+    if e0 > 0.3:
+        best = min(_e(dx, dy) for dx in range(-2, 3) for dy in range(-2, 3) if dx or dy)
+        if best < _SC_SHIFT * e0:
+            return False, "the framing is moved by a pixel or two"
+
+    if abs(float(A[..., 0].mean() - B[..., 0].mean())) > _SC_LUMA:
+        return False, "brighter or darker"
+    d = np.abs(_sc_blocks(A[..., 0], 8) - _sc_blocks(B[..., 0], 8))
+    if float(np.median(d)) > _SC_MEDIAN:
+        return False, "a different contrast or tone"
+    if float(np.abs(_sc_blocks(A[..., 1:], 16) - _sc_blocks(B[..., 1:], 16)).max()) > _SC_CHROMA:
+        return False, "a different colour"
+    # One area that stands out from the rest -- an eye, a tear, a hand. Measured
+    # against this pair's own noise, so heavy compression spread evenly over the
+    # picture does not look like a change, and a small change in a clean picture
+    # does.
+    worst, p99 = float(d.max()), float(np.percentile(d, 99))
+    if worst > _SC_LOCAL_ABS or (worst > 1.5 and worst > _SC_LOCAL * (p99 + 0.3)):
         return False, "differs in one area"
-    if mean > _SC_MEAN_MAX:
-        return False, "differs in colour or detail"
+    # Sharpness: an area softened (or sharpened) in one copy only. Compression
+    # and scaling take detail away everywhere alike; a retouch takes it from one
+    # place. Block means cannot see it -- a blur keeps the mean -- so the detail
+    # itself (a Laplacian) is compared, block by block, in textured blocks only.
+    def _detail(y):
+        return _sc_blocks(np.abs(4 * y[1:-1, 1:-1] - y[:-2, 1:-1] - y[2:, 1:-1]
+                                 - y[1:-1, :-2] - y[1:-1, 2:]), 16)
+    la, lb = _detail(A[..., 0]), _detail(B[..., 0])
+    tex = la > 2.0
+    if int(tex.sum()) >= 10:
+        lr = np.log((lb[tex] + 0.5) / (la[tex] + 0.5))
+        dev = np.abs(lr - np.median(lr))
+        top = float(dev.max())
+        if top > 0.8 and top > _SC_SHARP * (float(np.percentile(dev, 99)) + 0.05):
+            return False, "sharper or softer in one area"
     return True, ""
 
 
 def _sc_rank(r):
-    """The copy that stays: most pixels, then the largest file (less compression
-    at the same size), then a rating, then the oldest -- a copy is made after its
-    original."""
+    """Among copies that are equally good, the one that stays: a rating, then
+    the oldest -- a copy is made after its original."""
     return (-(r["px"]), -(r["size"]), -(r["rating"] or 0), r["file_date"] or 0, r["id"])
+
+
+def _sc_dominates(o, c):
+    """o is at least as good as c on BOTH counts -- resolution and file size, the
+    latter being the least compression at the same size -- and better on one,
+    or the same on both and first in line. A copy with more pixels but a
+    smaller file is not beaten by either rule, so both are kept."""
+    if o["px"] < c["px"] or o["size"] < c["size"]:
+        return False
+    return o["px"] > c["px"] or o["size"] > c["size"] or _sc_rank(o) < _sc_rank(c)
 
 
 @app.route("/api/duplicates/smart-clean", methods=["POST"])
@@ -301,6 +372,8 @@ def api_duplicates_smart_clean():
     copies in each group. A plan is only ever carried out as it was shown: the
     page sends back the pairs it confirmed, and each is checked to still exist."""
     from .api_images import trash_images
+    if not HAS_PHASH:
+        return jsonify({"error": "numpy not installed"}), 400
     data = request.get_json(silent=True) or {}
     db = get_db()
     if data.get("apply"):
@@ -318,7 +391,7 @@ def api_duplicates_smart_clean():
         return jsonify({"ok": True, "deleted": deleted, "trash_ids": trash_ids, "errors": errors})
 
     groups = [[int(i) for i in grp if str(i).isdigit()] for grp in (data.get("groups") or [])][:5000]
-    keep, remove, skipped, freed = [], [], [], 0
+    remove, skipped, freed, torn, jobs = [], [], 0, 0, []
     for grp in groups:
         grp = list(dict.fromkeys(grp))[:200]
         if len(grp) < 2:
@@ -329,46 +402,60 @@ def api_duplicates_smart_clean():
         cand = []
         for r in rows:
             if (r["media_type"] or "image") != "image":
-                skipped.append({"id": r["id"], "filename": r["filename"], "why": "not a still picture"})
+                skipped.append({"id": r["id"], "filename": r["filename"],
+                                "why": ("a video" if r["media_type"] == "video" else "a GIF") + " \u2014 never removed"})
                 continue
             try:
                 size = os.path.getsize(r["filepath"])
-            except OSError:
-                skipped.append({"id": r["id"], "filename": r["filename"], "why": "the file is missing"})
+                with Image.open(r["filepath"]) as _im:     # the header: true size, and whether it moves
+                    if getattr(_im, "n_frames", 1) > 1:
+                        skipped.append({"id": r["id"], "filename": r["filename"],
+                                        "why": "animated \u2014 never removed"})
+                        continue
+                    px = _oriented_size(_im)
+            except Exception as e:
+                skipped.append({"id": r["id"], "filename": r["filename"],
+                                "why": f"could not be read ({type(e).__name__})"})
                 continue
-            px = (r["width"] or 0) * (r["height"] or 0)
-            if not px:                       # not processed yet: the header knows
-                try:
-                    with Image.open(r["filepath"]) as _im:
-                        px = _im.size[0] * _im.size[1]
-                except Exception:
-                    pass
             cand.append({"id": r["id"], "filename": r["filename"], "folder": r["folder"],
-                         "path": r["filepath"], "px": px,
+                         "path": r["filepath"], "px": px[0] * px[1],
                          "size": size, "rating": r["rating"], "file_date": r["file_date"]})
         if len(cand) < 2:
             continue
         cand.sort(key=_sc_rank)
-        best = cand[0]
+        top = [c for c in cand if not any(_sc_dominates(o, c) for o in cand if o is not c)]
+        if len(top) > 1:
+            torn += 1                       # the sharpest copy is not the largest file
+        top_ids = {t["id"] for t in top}
+        for c in cand:
+            k = None if c["id"] in top_ids else next((o for o in top if _sc_dominates(o, c)), None)
+            if k:
+                jobs.append((c, k))
+
+    def _check(job):
+        c, k = job
         try:
-            ref = _sc_load(best["path"])
+            ref = _sc_load(k["path"])
+            oth = _sc_load(c["path"], ref.size if ref is not None else None)
+            if ref is None or oth is None:
+                return False, "animated \u2014 never removed"
+            return _sc_same_picture(ref, oth)
         except Exception as e:
-            skipped.extend({"id": c["id"], "filename": c["filename"],
-                            "why": f"could not be read ({type(e).__name__})"} for c in cand)
-            continue
-        took = False
-        for c in cand[1:]:
-            try:
-                same, why = _sc_same_picture(ref, _sc_load(c["path"], ref.size))
-            except Exception as e:
-                same, why = False, f"could not be read ({type(e).__name__})"
-            if same:
-                remove.append({"id": c["id"], "keep": best["id"], "filename": c["filename"],
-                               "folder": c["folder"], "size": c["size"]})
-                freed += c["size"]; took = True
-            else:
-                skipped.append({"id": c["id"], "filename": c["filename"], "why": why})
-        if took:
-            keep.append({"id": best["id"], "filename": best["filename"], "folder": best["folder"]})
+            return False, f"could not be read ({type(e).__name__})"
+    # Decoding and the array work release the GIL, so a few threads really do
+    # run side by side; the pool of the background workers is left alone.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=max(1, min(4, (os.cpu_count() or 2) - 1))) as ex:
+        results = list(ex.map(_check, jobs))
+    kept = {}
+    for (c, k), (same, why) in zip(jobs, results):
+        if same:
+            remove.append({"id": c["id"], "keep": k["id"], "filename": c["filename"],
+                           "folder": c["folder"], "size": c["size"]})
+            freed += c["size"]
+            kept[k["id"]] = {"id": k["id"], "filename": k["filename"], "folder": k["folder"]}
+        else:
+            skipped.append({"id": c["id"], "filename": c["filename"], "why": why})
+    keep = list(kept.values())
     return jsonify({"ok": True, "keep": keep, "remove": remove, "skipped": skipped,
-                    "bytes": freed})
+                    "bytes": freed, "undecided": torn})
