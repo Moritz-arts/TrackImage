@@ -93,6 +93,11 @@ def api_images():
 
     cq = q.replace("SELECT DISTINCT i.id,i.filename,i.folder,i.filepath,i.width,i.height,i.file_date,i.media_type,i.rating","SELECT COUNT(DISTINCT i.id)")
     total = db.execute(cq, params).fetchone()[0]
+    if request.args.get("ids_only") == "1":
+        # Ctrl+A means every picture the view holds, not the sixty that happen to
+        # be loaded -- so the whole filter answers once, as bare ids.
+        iq = q.replace("SELECT DISTINCT i.id,i.filename,i.folder,i.filepath,i.width,i.height,i.file_date,i.media_type,i.rating", "SELECT DISTINCT i.id")
+        return jsonify({"ids": [r[0] for r in db.execute(iq, params).fetchall()], "total": total})
 
     od = "ASC" if order=="asc" else "DESC"
     if sort=="folder":
