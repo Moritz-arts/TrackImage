@@ -265,6 +265,23 @@ document.addEventListener('keydown',function(e){
     if(S.page==='duplicates'){if(e.key==='Escape')navigate('gallery');}
 });
 
+/* Ctrl + wheel sizes the grid the way it sizes icons in a file manager: up for
+   bigger pictures, fewer per row. The browser would otherwise zoom the whole
+   page, which is what UI scale in Settings is for. A trackpad sends many small
+   steps, so they are added up to one notch before the grid changes. */
+var _cwAcc=0;
+document.addEventListener('wheel',function(e){
+    if(!(e.ctrlKey||e.metaKey))return;
+    if(S.page!=='gallery'&&S.page!=='duplicates')return;
+    e.preventDefault();
+    _cwAcc+=(e.deltaMode===1?e.deltaY*40:e.deltaY);
+    if(Math.abs(_cwAcc)<50)return;
+    var n=S.cols+(_cwAcc>0?1:-1);_cwAcc=0;
+    if(n<1||n>15)return;
+    setGridCols(n);
+    document.querySelectorAll('.grid-slider input[type=range]').forEach(function(r){r.value=n;});
+},{passive:false});
+
 window.addEventListener('focus',function(){if(S.page==='detail'){var img=S.images[S.currentImageIndex];var di=document.getElementById('detail-rating');if(img&&di){di.textContent=img.rating?img.rating:'';di.style.color=img.rating?ratingColor(img.rating):'var(--accent-light)';}}});
 
 window.addEventListener('orientationchange',function(){setTimeout(dsArrows,80);});

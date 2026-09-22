@@ -460,7 +460,8 @@ var KEY_FIXED=[
  ['0 \u2013 9','Rate the current or selected images; 0 clears the rating'],
  ['\u2191 \u2193','Walk the folder or tag column once it has focus'],
  ['Enter','Open the highlighted entry in a column, or commit a search chip'],
- ['\u2190 \u2192','Fold a folder open or shut while the column has focus']
+ ['\u2190 \u2192','Fold a folder open or shut while the column has focus'],
+ ['Ctrl + wheel','Fewer or more pictures per row \u2014 the same as the slider in the top bar']
 ];
 
 function keyDefault(a){for(var i=0;i<KEY_ACTIONS.length;i++)if(KEY_ACTIONS[i][0]===a)return KEY_ACTIONS[i][2];return '';}
