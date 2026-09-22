@@ -297,6 +297,23 @@ def _claim_next(db):
             cursor = rows[-1]["id"]
 
 
+def _oriented_size(im):
+    """(width, height) as the picture is shown, not as it is stored. A phone
+    writes a portrait photo as a landscape one plus an EXIF note to turn it;
+    everything that looks at the picture -- the hash, the thumbnail, the viewer
+    -- turns it, so its size must be turned too. It was not, and a portrait
+    phone photo and its WhatsApp copy (turned for real, the note dropped) came
+    out with opposite aspect ratios -- which the duplicate search rejects before
+    it even compares the hashes, so that pair was never found."""
+    w, h = im.size
+    try:
+        if im.getexif().get(0x0112, 1) in (5, 6, 7, 8):
+            return h, w
+    except Exception:
+        pass
+    return w, h
+
+
 def _compute_image_payload(fp, want_thumb):
     """Pure compute for one image file (no DB, picklable) — safe in a worker
     process. Returns None on a transient read/decode failure (caller retries)."""
@@ -319,7 +336,7 @@ def _compute_image_payload(fp, want_thumb):
     w = h = 0
     try:
         with Image.open(BytesIO(raw)) as im0:
-            w, h = im0.size
+            w, h = _oriented_size(im0)
     except Exception:
         pass
     try:

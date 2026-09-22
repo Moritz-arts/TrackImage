@@ -16,7 +16,7 @@ from .events import _shutdown_now
 from .thumbnails import _thumb_backfill_ensure_running
 from .processing import _proc, _proc_ensure_running, _proc_load_settings
 from .duplicates import _ensure_mem_pairs
-from .scanning import _AUTOSYNC, _autosync_load, _purge_own_folder_rows, _scan_orphans_async, _sweep_orphan_images, start_watcher
+from .scanning import _AUTOSYNC, _autosync_load, _fix_oriented_sizes_async, _purge_own_folder_rows, _scan_orphans_async, _sweep_orphan_images, start_watcher
 from .network import _lan_ips, _net_cfg, _serve_on
 from .runtime import _replay_install_log, _run_pending_runtime_install, check_assets, check_venv
 from .importing import _bind_native_drop, native_drag_available
@@ -131,6 +131,7 @@ def main():
         _run_pending_runtime_install()
     _stage("opening the database and tidying up")
     _scan_orphans_async()        # v4.26: report-only, off the startup path
+    _fix_oriented_sizes_async()  # once: stored sizes the right way round
     try:
         subprocess.run([FFMPEG_BIN, "-version"], **_no_window({"capture_output": True, "timeout": 5}))
         log("ffmpeg found — video thumbnails enabled")

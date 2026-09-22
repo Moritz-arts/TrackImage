@@ -694,6 +694,66 @@ def _scan_orphans_async():
     threading.Thread(target=_run, daemon=True, name="orphan-check").start()
 
 
+_ORIENT_EXTS = (".jpg", ".jpeg", ".jfif", ".tif", ".tiff", ".heic", ".heif", ".webp", ".png", ".avif")
+
+
+def _fix_oriented_sizes_async():
+    """Once per library: turn the stored size of every picture that carries an
+    EXIF note to turn it. Up to now the size was read before the turn, so a
+    portrait phone photo was on record as landscape -- and the duplicate search
+    threw its WhatsApp copy away on the aspect ratio before comparing anything.
+    New pictures are measured the right way round (see _oriented_size); this
+    puts the old ones right. It only reads file headers, in the background, and
+    a file that cannot be reached is simply tried again on the next start."""
+    from .processing import _oriented_size
+    from .config import Image
+    def _run():
+        try:
+            _time.sleep(8.0)                      # after startup's own work
+            db = _get_thread_db()
+            try:
+                if db.execute("SELECT value FROM config WHERE key='dims_oriented'").fetchone():
+                    return
+                rows = db.execute("SELECT id, filepath, width, height FROM images "
+                                  "WHERE media_type='image' AND width>0 AND height>0").fetchall()
+                fixed, missed = [], 0
+                for i, r in enumerate(rows):
+                    fp = r["filepath"] or ""
+                    if not fp.lower().endswith(_ORIENT_EXTS):
+                        continue
+                    try:
+                        with Image.open(fp) as im:
+                            raw, shown = im.size, _oriented_size(im)
+                    except Exception:
+                        missed += 1
+                        continue
+                    # Only a row still holding the unturned size is changed, so a
+                    # second run, or a row already measured anew, is left alone.
+                    if shown != raw and (r["width"], r["height"]) == raw:
+                        fixed.append((shown[0], shown[1], r["id"]))
+                    if i % 500 == 499:
+                        _time.sleep(0.05)
+                if fixed:
+                    with _db_write_lock:
+                        db.executemany("UPDATE images SET width=?, height=? WHERE id=?", fixed)
+                        _db_commit_retry(db)
+                    _mem_invalidate()
+                    log(f"Turned the recorded size of {len(fixed)} picture(s) that are shown rotated "
+                        "\u2014 duplicates between a phone photo and its shared copy can be found now", "info")
+                # A few rows whose file is gone for good must not make every
+                # start read the whole library again; a drive that is offline
+                # (most of them missed) is what earns a retry.
+                if missed <= max(20, len(rows) // 50):
+                    with _db_write_lock:
+                        db.execute("INSERT OR REPLACE INTO config (key, value) VALUES ('dims_oriented', '1')")
+                        _db_commit_retry(db)
+            finally:
+                db.close()
+        except Exception as e:
+            log("orientation check failed: %s" % e, "warning")
+    threading.Thread(target=_run, daemon=True, name="orient-sizes").start()
+
+
 def _wipe_images_by_ids(db, ids, progress=None, chunk=5000):
     """v3.24: delete the given image ids fast. Files on disk are NEVER touched.
     The image rows are removed in COMMITTED chunks (cascading to thumb_cache BLOBs and
