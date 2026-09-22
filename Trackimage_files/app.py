@@ -1,5 +1,5 @@
 """
-TrackImage v4.76
+TrackImage v4.77
 
 A local danbooru-style image library that never leaves your machine.
 

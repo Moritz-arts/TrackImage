@@ -5,6 +5,17 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.77 — 2026-09-22
+
+- Full view: no black flash between pictures, and the zoom stays when stepping to the next
+- Dragging a picture out of a browser tab delivers the original file again
+- Duplicates: a single click selects a picture instead of opening it
+- Settings: keyboard shortcuts have a tab of their own
+- Duplicates: Smart clean keeps the best copy and trashes only pixel-identical ones
+- Ctrl+A selects every picture in the view, not only the loaded ones
+- Ctrl + mouse wheel sets how many pictures fit in a row
+- Paste lands where the mouse is, and brings files copied outside TrackImage
+
 ## v4.76 — 2026-09-16
 
 - Rename: clicking a suggested name takes it instead of closing the dialog
