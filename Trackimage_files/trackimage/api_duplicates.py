@@ -350,20 +350,83 @@ def _sc_same_picture(keep, other):
     return True, ""
 
 
+# Which copy is the better one. File size said "least compression" only
+# between two files of the same format -- a PNG saved from a JPEG is three times
+# the size and not one pixel better, and a WebP half the size of a JPEG can be
+# the cleaner of the two. What JPEG compression leaves behind is visible in the
+# pixels themselves, whatever the file is called now: edges line up on its 8x8
+# grid. Measured on real photographs the grid reads 1.00-1.02 on an original,
+# about 1.02 / 1.2 / 1.4 / 1.6 / 1.9 at JPEG 95 / 85 / 70 / 50 / 30 -- and a
+# PNG made from a JPEG 50 reads exactly like the JPEG 50. So that is what is
+# compared. WebP, HEIC and AVIF leave no such grid; between those and anything
+# else nothing is known, and both copies stay.
+
+_SC_LOSSLESS = {"PNG", "BMP", "TIFF", "PPM"}
+_SC_GRID = {"JPEG", "MPO"} | _SC_LOSSLESS   # formats whose JPEG history can be read off the pixels
+_SC_GRID_TIE = 0.02      # as clean as each other, at the same size
+_SC_GRID_SLACK = 0.10    # what a copy with MORE pixels may carry and still count as better
+
+
+def _sc_blockiness(path):
+    """How strongly the edges line up on an 8x8 grid: 1.0 is none, i.e. no JPEG
+    in this picture's past. At the stored resolution -- a scaled copy has lost
+    the grid, which is why this is only ever compared with care across sizes
+    -- and at any offset, so a cropped JPEG still shows it."""
+    with Image.open(path) as im:
+        w, h = im.size
+        if min(w, h) < 64:
+            return 1.0
+        if max(w, h) > 2048:                       # the middle is enough, and native
+            x, y = max(0, (w - 2048) // 2), max(0, (h - 2048) // 2)
+            im = im.crop((x, y, min(w, x + 2048), min(h, y + 2048)))
+        g = np.asarray(im.convert("L"), np.float32)
+    def _score(d):
+        n = len(d) // 8 * 8
+        per = d[:n].reshape(-1, 8).mean(axis=0)   # edge strength at each of the 8 offsets
+        return float(per.max() / max(float(np.median(per)), 1e-6))
+    return (_score(np.abs(np.diff(g, axis=1)).mean(axis=0)) +
+            _score(np.abs(np.diff(g, axis=0)).mean(axis=1))) / 2
+
+
+def _sc_tie(r):
+    """Between copies equally good on pixels and compression: the lossless file,
+    then the larger one, then a rating, then the oldest -- a copy is made after
+    its original."""
+    return (0 if r["fmt"] in _SC_LOSSLESS else 1, -(r["size"]), -(r["rating"] or 0),
+            r["file_date"] or 0, r["id"])
+
+
 def _sc_rank(r):
-    """Among copies that are equally good, the one that stays: a rating, then
-    the oldest -- a copy is made after its original."""
-    return (-(r["px"]), -(r["size"]), -(r["rating"] or 0), r["file_date"] or 0, r["id"])
+    return (-(r["px"]), r.get("blk") or 9) + _sc_tie(r)
 
 
 def _sc_dominates(o, c):
-    """o is at least as good as c on BOTH counts -- resolution and file size, the
-    latter being the least compression at the same size -- and better on one,
-    or the same on both and first in line. A copy with more pixels but a
-    smaller file is not beaten by either rule, so both are kept."""
-    if o["px"] < c["px"] or o["size"] < c["size"]:
+    """o may stand in for c: at least as many pixels AND no more compression --
+    and better on one of them, or equal on both and first in line. A copy with
+    more pixels but more compression is not beaten by either, so both stay."""
+    if o["px"] < c["px"]:
         return False
-    return o["px"] > c["px"] or o["size"] > c["size"] or _sc_rank(o) < _sc_rank(c)
+    if o["fmt"] in _SC_GRID and c["fmt"] in _SC_GRID:
+        tol = _SC_GRID_TIE if o["px"] == c["px"] else _SC_GRID_SLACK
+        if o["blk"] > c["blk"] + tol:
+            return False
+        return o["px"] > c["px"] or o["blk"] < c["blk"] - tol or _sc_tie(o) < _sc_tie(c)
+    if o["fmt"] != c["fmt"]:
+        return False                              # WebP against JPEG: nothing is known
+    if o["size"] < c["size"]:                     # the same codec: the larger file is compressed less
+        return False
+    return o["px"] > c["px"] or o["size"] > c["size"] or _sc_tie(o) < _sc_tie(c)
+
+
+def _sc_card(c, why=None):
+    """What the page shows for one copy -- enough to see why it went or stayed."""
+    q = c.get("blk")
+    d = {"id": c["id"], "filename": c["filename"], "folder": c["folder"], "size": c["size"],
+         "w": c.get("w"), "h": c.get("h"), "fmt": c.get("fmt"),
+         "grid": round(q, 2) if q else None}
+    if why:
+        d["why"] = why
+    return d
 
 
 @app.route("/api/duplicates/smart-clean", methods=["POST"])
@@ -391,7 +454,7 @@ def api_duplicates_smart_clean():
         return jsonify({"ok": True, "deleted": deleted, "trash_ids": trash_ids, "errors": errors})
 
     groups = [[int(i) for i in grp if str(i).isdigit()] for grp in (data.get("groups") or [])][:5000]
-    remove, skipped, freed, torn, jobs = [], [], 0, 0, []
+    remove, skipped, freed, torn, jobs, cands, best = [], [], 0, 0, [], [], []
     for grp in groups:
         grp = list(dict.fromkeys(grp))[:200]
         if len(grp) < 2:
@@ -413,24 +476,42 @@ def api_duplicates_smart_clean():
                                         "why": "animated \u2014 never removed"})
                         continue
                     px = _oriented_size(_im)
+                    fmt = (_im.format or "").upper()
             except Exception as e:
                 skipped.append({"id": r["id"], "filename": r["filename"],
                                 "why": f"could not be read ({type(e).__name__})"})
                 continue
             cand.append({"id": r["id"], "filename": r["filename"], "folder": r["folder"],
-                         "path": r["filepath"], "px": px[0] * px[1],
-                         "size": size, "rating": r["rating"], "file_date": r["file_date"]})
+                         "path": r["filepath"], "px": px[0] * px[1], "w": px[0], "h": px[1],
+                         "fmt": fmt, "size": size, "rating": r["rating"], "file_date": r["file_date"]})
         if len(cand) < 2:
             continue
+        cands.append(cand)
+
+    # Decoding and the array work release the GIL, so a few threads really do
+    # run side by side; the pool of the background workers is left alone.
+    from concurrent.futures import ThreadPoolExecutor
+    ex = ThreadPoolExecutor(max_workers=max(1, min(4, (os.cpu_count() or 2) - 1)))
+    def _blk(c):
+        try:
+            c["blk"] = _sc_blockiness(c["path"]) if c["fmt"] in _SC_GRID else None
+        except Exception:
+            c["blk"] = None
+            c["fmt"] = "?"                         # unreadable now: compared with nothing
+    list(ex.map(_blk, [c for cand in cands for c in cand]))
+    for cand in cands:
         cand.sort(key=_sc_rank)
         top = [c for c in cand if not any(_sc_dominates(o, c) for o in cand if o is not c)]
         if len(top) > 1:
-            torn += 1                       # the sharpest copy is not the largest file
+            torn += 1                       # more pixels here, less compression there
         top_ids = {t["id"] for t in top}
+        best.extend(top)
         for c in cand:
             k = None if c["id"] in top_ids else next((o for o in top if _sc_dominates(o, c)), None)
             if k:
                 jobs.append((c, k))
+            elif c["id"] not in top_ids:
+                skipped.append(_sc_card(c, "not clearly worse than the copies that stay"))
 
     def _check(job):
         c, k = job
@@ -442,20 +523,19 @@ def api_duplicates_smart_clean():
             return _sc_same_picture(ref, oth)
         except Exception as e:
             return False, f"could not be read ({type(e).__name__})"
-    # Decoding and the array work release the GIL, so a few threads really do
-    # run side by side; the pool of the background workers is left alone.
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=max(1, min(4, (os.cpu_count() or 2) - 1))) as ex:
+    try:
         results = list(ex.map(_check, jobs))
+    finally:
+        ex.shutdown()
     kept = {}
     for (c, k), (same, why) in zip(jobs, results):
         if same:
-            remove.append({"id": c["id"], "keep": k["id"], "filename": c["filename"],
-                           "folder": c["folder"], "size": c["size"]})
+            rc = _sc_card(c); rc["keep"] = k["id"]
+            remove.append(rc)
             freed += c["size"]
-            kept[k["id"]] = {"id": k["id"], "filename": k["filename"], "folder": k["folder"]}
+            kept[k["id"]] = _sc_card(k)
         else:
-            skipped.append({"id": c["id"], "filename": c["filename"], "why": why})
+            skipped.append(_sc_card(c, why))
     keep = list(kept.values())
     return jsonify({"ok": True, "keep": keep, "remove": remove, "skipped": skipped,
-                    "bytes": freed, "undecided": torn})
+                    "best": [_sc_card(t) for t in best], "bytes": freed, "undecided": torn})
