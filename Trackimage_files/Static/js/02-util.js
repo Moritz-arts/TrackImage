@@ -320,7 +320,7 @@ var imgs=group.images||group;var sim=group.similarity!=null?group.similarity:nul
 var collapsed=S._collapsedGroups&&S._collapsedGroups.has(gi);
 h+='<div class="dup-group"><div class="dup-group-title" onclick="toggleDupGroup('+gi+')" style="cursor:pointer;user-select:none">';
 h+='<span style="display:inline-block;width:16px;flex:none;transition:transform .2s;transform:rotate('+(collapsed?'-90deg':'0')+')">\u25BE</span>';
-h+='<span class="dgt-label">Group '+(gi+1)+' \u2014 '+imgs.length+' images'+(sim!=null?' <span style="color:var(--accent);font-weight:600;margin-left:6px">'+sim+'% similar</span>':'')+'</span><span class="dgt-actions">'+(S.dupShowIgnored?'<button class="btn btn-sm" onclick="event.stopPropagation();dupIgnoreGroup('+gi+',false)" title="Offer this group as a duplicate again">Restore</button>':'<button class="btn btn-sm" onclick="event.stopPropagation();dupIgnoreGroup('+gi+',true)" title="Wanted variants \u2014 stop showing this group">Ignore</button>')+'</span>'+'</div>';
+h+='<span class="dgt-label">Group '+(gi+1)+' \u2014 '+imgs.length+' images'+(sim!=null?' <span style="color:var(--accent);font-weight:600;margin-left:6px">'+sim+'% similar</span>':'')+'</span><span class="dgt-actions">'+dupSmartBtn(gi)+(S.dupShowIgnored?'<button class="btn btn-sm" onclick="event.stopPropagation();dupIgnoreGroup('+gi+',false)" title="Offer this group as a duplicate again">Restore</button>':'<button class="btn btn-sm" onclick="event.stopPropagation();dupIgnoreGroup('+gi+',true)" title="Wanted variants \u2014 stop showing this group">Ignore</button>')+'</span>'+'</div>';
 h+='<div class="gallery dup-grid'+(S.thumbMode==='ratio'?' justified':'')+(S.info.visible?'':' no-info')+'" style="'+(collapsed?'display:none':'')+'">';
 // v3.83: the badges are scored GROUP-WISE (see dupGroupStats). The heatmap is
 // pairwise by construction, so it still needs one reference image -- that is the
@@ -365,7 +365,6 @@ var _tagCtx=(S._dupQuery?S._dupQuery.mode==='tags':S.simMode);
 if(!_tagCtx)val=DUP_STEPS[Math.max(0,Math.min(DUP_STEPS.length-1,val))];   /* a position, see DUP_STEPS */
 if(_tagCtx){S.simMatch=val;localStorage.setItem('ti_sim_match',String(val));}else S.dupThreshold=val;
 var el=document.getElementById('dup-threshold-val');if(el)el.textContent=val+'%';
-var _sb=document.getElementById('dup-smart-btn');if(_sb)_sb.style.opacity=(val<=SMART_MAX?'':'.5');
 if(S._dupQuery){var _qm=sortQueryMatches((S._dupQuery.allMatches||[]).filter(function(m){return m.similarity>=(_tagCtx?val:100-val);}));S.dupGroups=[{images:_qm,similarity:null}];var _r=document.getElementById('dup-results');if(_r)_r.innerHTML=renderDupGroups(S.dupGroups);var _st=document.getElementById('dup-stats');if(_st)_st.textContent=dupQueryStats(_qm.length,_tagCtx,(S._lastHashed||0));return;}
 clearTimeout(_dupSliderTimer);clearInterval(_dupComputeTimer);
 var r=document.getElementById('dup-results');if(r)r.innerHTML='<div class="dup-loading"><div class="spinner"></div>Filtering duplicates...</div>';
