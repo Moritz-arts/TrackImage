@@ -301,11 +301,91 @@ async function removeMetadataSingle(id){
     await loadImagesPreserve();if(S.page==='gallery')renderMain();
 }
 
-function bustImageCaches(id){var t=Date.now();document.querySelectorAll('img').forEach(function(im){var s=im.getAttribute('src')||'';if(s.indexOf('/thumb/'+id+'?')===0||s.indexOf('/full/'+id)===0){s=s.replace(/[?&]v=\d+/,'');im.src=s+(s.indexOf('?')>=0?'&':'?')+'v='+t;}});}
+function bustImageCaches(id){if(typeof _dvPre!=='undefined')delete _dvPre[id];   /* a held preload would show the old pixels */var t=Date.now();document.querySelectorAll('img').forEach(function(im){var s=im.getAttribute('src')||'';if(s.indexOf('/thumb/'+id+'?')===0||s.indexOf('/full/'+id)===0){s=s.replace(/[?&]v=\d+/,'');im.src=s+(s.indexOf('?')>=0?'&':'?')+'v='+t;}});}
 
-function copyToClipboard(){var ids=Array.from(S.selectedImages);if(!ids.length)return;osClipboard(ids,'file',true);S.clipboard={ids:ids,mode:'copy'};updateClipboardUI();showToast(ids.length+' item'+(ids.length>1?'s':'')+' copied','success');}
+function copyToClipboard(){var ids=Array.from(S.selectedImages);if(!ids.length)return;osClipboard(ids,'file',true).then(function(){_clipNoteSig(ids);});S.clipboard={ids:ids,mode:'copy'};updateClipboardUI();showToast(ids.length+' item'+(ids.length>1?'s':'')+' copied','success');}
 
-function cutToClipboard(){var ids=Array.from(S.selectedImages);if(!ids.length)return;S.clipboard={ids:ids,mode:'cut'};updateClipboardUI();showToast(ids.length+' item'+(ids.length>1?'s':'')+' cut','success');}
+function cutToClipboard(){var ids=Array.from(S.selectedImages);if(!ids.length)return;S.clipboard={ids:ids,mode:'cut'};_clipNoteSig(ids);updateClipboardUI();showToast(ids.length+' item'+(ids.length>1?'s':'')+' cut','success');}
+
+/* ---- Paste ----------------------------------------------------------------
+   A paste lands where the mouse is -- the folder of the picture under it, the
+   folder in the tree under it, or the folder that is open -- and it brings
+   whichever clipboard was filled LAST: TrackImage's own, or the one another
+   program wrote to since (Explorer, "Copy image" in a browser, a screenshot).
+   It used to know only its own, so a file copied in Explorer could not be
+   pasted here at all. The system clipboard carries a signature that changes
+   with every change; the one noted when TrackImage copied or cut is how the
+   two are told apart. */
+function osClipPeek(){
+    if(_netW.remote)return Promise.resolve(null);   /* that clipboard is the server's, not this device's */
+    var ids=(S.clipboard&&S.clipboard.ids.length)?S.clipboard.ids.slice(0,500).join(','):'';
+    return api('/api/os-clipboard'+(ids?'?ids='+ids:'')).catch(function(){return null;});
+}
+
+function _clipNoteSig(ids){osClipPeek().then(function(o){if(o&&S.clipboard.ids===ids)S.clipboard.sig=o.sig;});}
+
+function _pasteOwn(os){
+    if(!(S.clipboard&&S.clipboard.ids.length))return false;
+    if(!os||!(os.count||os.image))return true;
+    return !!os.ours||(!!S.clipboard.sig&&os.sig===S.clipboard.sig);
+}
+
+async function pasteSmart(folder){
+    var os=await osClipPeek();
+    if(_pasteOwn(os))return folder?pasteIntoFolder(folder):pasteAtCurrent();
+    if(os&&(os.count||os.image)){
+        if(!folder)return showToast('Open a folder, or right-click the one to paste into');
+        return pasteFromOS(folder);
+    }
+    if(os&&os.other)return showToast('Only pictures and videos can be pasted into the library','error');
+    showToast('Clipboard is empty');
+}
+
+async function pasteFromOS(folder){
+    showToast('Pasting into '+folder+'…');
+    var r;try{r=await api('/api/os-clipboard/paste',{method:'POST',body:JSON.stringify({folder:folder})});}catch(e){r={error:String(e)};}
+    if(!r||r.error)return showToast((r&&r.error)||'Paste failed','error');
+    /* the same as a drop: the gallery is where the new files can be seen */
+    if(S.page!=='gallery')navigate('gallery');
+    _impFinish(r,folder,r.moved?'moved':'copied');
+}
+
+var _hoverEl=null;
+
+function pasteTargetAt(el,preferOpen){
+    var t=(el&&el.closest)?el:null;
+    var tt=t&&t.closest('.tree-toggle');
+    if(tt&&tt.dataset.fidx!=null&&_folderPaths[parseInt(tt.dataset.fidx)])return _folderPaths[parseInt(tt.dataset.fidx)];
+    if(preferOpen&&curFolder())return curFolder();
+    var gi=t&&t.closest('.gallery-item[data-id]');
+    if(gi){var im=findImageAnywhere(gi.dataset.id);if(im&&im.folder)return im.folder;}
+    if(S.page==='detail'){var cur=S.images[S.currentImageIndex];if(cur&&cur.folder)return cur.folder;}
+    return curFolder();
+}
+
+function ctxPasteItem(target){
+    if(!target&&!(S.clipboard&&S.clipboard.ids.length))return '';
+    var arg=esc(target||'').replace(/\\/g,"\\\\").replace(/\x27/g,"\\\x27");
+    return '<div class="ctx-menu-item" id="ctx-paste" onclick="hideCtx();pasteSmart(\''+arg+'\')">'+ICO.paste
+        +'<span class="ctx-paste-lbl">Paste'+(target?' into '+esc(target):'')+'</span></div>';
+}
+
+/* The menu opens at once; what the paste would bring is filled in when the
+   clipboard has answered. */
+function ctxPasteRefine(target){
+    osClipPeek().then(function(os){
+        var el=document.getElementById('ctx-paste');if(!el)return;
+        var lbl=el.querySelector('.ctx-paste-lbl');if(!lbl)return;
+        var into=target?' into '+target:'';
+        if(_pasteOwn(os)){var n=S.clipboard.ids.length;lbl.textContent='Paste '+n+' item'+(n>1?'s':'')+' ('+(S.clipboard.mode==='cut'?'move':'copy')+')'+into;}
+        else if(os&&(os.count||os.image)&&!target){lbl.textContent='Paste — open a folder first';el.classList.add('disabled');el.setAttribute('onclick','hideCtx()');}
+        else if(os&&os.count){lbl.textContent='Paste '+(os.count===1?((os.names&&os.names[0])||'1 file'):os.count+' files')+(os.move?' (move)':'')+into;}
+        else if(os&&os.image){lbl.textContent='Paste picture'+into;}
+        else{lbl.textContent='Nothing to paste';el.classList.add('disabled');el.setAttribute('onclick','hideCtx()');}
+        var m=document.getElementById('ctx-menu');
+        if(m){var r=m.getBoundingClientRect();if(r.right>window.innerWidth)m.style.left=Math.max(4,window.innerWidth-r.width-4)+'px';}
+    });
+}
 
 function clearClipboard(){S.clipboard={ids:[],mode:null};updateClipboardUI();}
 
@@ -347,11 +427,8 @@ function showGalleryCtx(e,imgId,inDetail){
         +'<div class="ctx-menu-item" onclick="hideCtx();copyToClipboard()">'+ICO.copy+'Copy '+label+'</div>'
         +'<div class="ctx-menu-item" onclick="hideCtx();copyImageToOS()">'+ICO.osimg+'Copy as picture</div>'
         +'<div class="ctx-menu-item" onclick="hideCtx();cutToClipboard()">'+ICO.cut+'Cut '+label+'</div>';
-    if(S.clipboard&&S.clipboard.ids.length){
-        var img=S.images.find(function(i){return i.id===imgId;});
-        var target=img?img.folder:curFolder();
-        html+='<div class="ctx-menu-item" onclick="hideCtx();pasteIntoFolder(\''+esc(target).replace(/\\/g,"\\\\").replace(/\x27/g,"\\\x27")+'\')">'+ICO.paste+'Paste '+S.clipboard.ids.length+' item'+(S.clipboard.ids.length>1?'s':'')+' into '+esc(target||'current')+'</div>';
-    }
+    var _pimg=findImageAnywhere(imgId),_pt=(_pimg&&_pimg.folder)||curFolder();
+    html+=ctxPasteItem(_pt);
     html+='<div class="ctx-menu-sep"></div>'
         +(n===1?'<div class="ctx-menu-item" onclick="hideCtx();'+_cd+'renameFromCtx('+imgId+')">'+ICO.rename+'Rename</div>':'<div class="ctx-menu-item" onclick="hideCtx();'+_cd+'bulkRenameSelected()">'+ICO.rename+'Rename '+n+' files</div>')
         +'<div class="ctx-menu-item" onclick="hideCtx();'+_cd+'editTagsSelected()">'+ICO.tags+'Edit tags'+(n>1?' for '+n+' files':'')+'</div>'
@@ -366,6 +443,7 @@ function showGalleryCtx(e,imgId,inDetail){
     if(x+m.offsetWidth>window.innerWidth)x=window.innerWidth-m.offsetWidth-4;
     if(y+m.offsetHeight>window.innerHeight)y=window.innerHeight-m.offsetHeight-4;
     m.style.left=x+'px';m.style.top=y+'px';
+    ctxPasteRefine(_pt);
 }
 
 async function renameFromCtx(imgId){
@@ -485,17 +563,19 @@ async function doMoveToFolder(targetFolder){
 function showMainCtx(e){
     if(e.target.closest('.gallery-item'))return; // let card handler win
     e.preventDefault();e.stopPropagation();hideCtx();
-    if(!S.clipboard||!S.clipboard.ids.length)return; // nothing to show
-    var target=curFolder()||(S.images.length?S.images[0].folder:'');
-    if(!target)return;
+    var own=!!(S.clipboard&&S.clipboard.ids.length);
+    var target=curFolder()||(own&&S.images.length?S.images[0].folder:'');
+    var html=ctxPasteItem(target);
+    if(own)html+='<div class="ctx-menu-item" onclick="hideCtx();clearClipboard()">✕ Clear clipboard</div>';
+    if(!html)return; // nothing to show
     var m=document.createElement('div');m.className='ctx-menu';m.id='ctx-menu';
-    m.innerHTML='<div class="ctx-menu-item" onclick="hideCtx();pasteIntoFolder(\''+esc(target).replace(/\\/g,"\\\\").replace(/\x27/g,"\\\x27")+'\')">'+ICO.paste+'Paste '+S.clipboard.ids.length+' item'+(S.clipboard.ids.length>1?'s':'')+' into '+esc(target)+'</div>'
-        +'<div class="ctx-menu-item" onclick="hideCtx();clearClipboard()">✕ Clear clipboard</div>';
+    m.innerHTML=html;
     document.body.appendChild(m);
     var x=e.clientX,y=e.clientY;
     if(x+m.offsetWidth>window.innerWidth)x=window.innerWidth-m.offsetWidth-4;
     if(y+m.offsetHeight>window.innerHeight)y=window.innerHeight-m.offsetHeight-4;
     m.style.left=x+'px';m.style.top=y+'px';
+    ctxPasteRefine(target);
 }
 
 function qaSel(){return Array.from(S.selectedImages);}

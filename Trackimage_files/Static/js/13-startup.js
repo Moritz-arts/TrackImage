@@ -238,7 +238,7 @@ document.addEventListener('keydown',function(e){
     e.preventDefault();copyFileToOS();return;}
     if(_act==='copy'&&S.page==='gallery'&&S.selectedImages.size){if(inTextField())return;e.preventDefault();copyToClipboard();return;}
     if(_act==='cut'&&S.page==='gallery'&&S.selectedImages.size){if(inTextField())return;e.preventDefault();cutToClipboard();return;}
-    if(_act==='paste'&&S.page==='gallery'&&S.clipboard.ids.length){if(inTextField())return;e.preventDefault();pasteAtCurrent();return;}
+    if(_act==='paste'&&S.page==='gallery'){if(inTextField())return;e.preventDefault();pasteSmart(pasteTargetAt(_hoverEl,true));return;}
     if(_act==='selectall'&&(S.page==='gallery'||S.page==='duplicates')){if(inTextField())return;e.preventDefault();selectAllInView();return;}
     if(_act==='info'&&(S.page==='gallery'||S.page==='detail')){
         if(inTextField())return;
@@ -264,6 +264,10 @@ document.addEventListener('keydown',function(e){
     if(S.page==='settings'){if(document.activeElement&&document.activeElement.tagName==='INPUT')return;if(e.key==='Escape')navigate('gallery');}
     if(S.page==='duplicates'){if(e.key==='Escape')navigate('gallery');}
 });
+
+/* What the mouse is over, for a Ctrl+V that should land there. mouseover fires
+   only when the element under the pointer changes, so this costs nothing. */
+document.addEventListener('mouseover',function(e){_hoverEl=e.target;},true);
 
 /* Ctrl + wheel sizes the grid the way it sizes icons in a file manager: up for
    bigger pictures, fewer per row. The browser would otherwise zoom the whole

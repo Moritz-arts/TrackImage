@@ -24,7 +24,8 @@ from .tagger import _tag_ensure_running, _tag_save_cfg
 from .duplicates import _mem_invalidate
 from .scanning import _AUTOSYNC, _incremental_sync, _orphan_ids, _orphan_notice, _prune_dirs, _skip_dir, _sync_paths, _wipe_images_by_ids, restart_watcher, scan_all_folders, start_watcher, stop_watcher
 from .picker import _PICKER_CODE_TK, _PICKER_CODE_WIN, _picker_env, _run_picker
-from .importing import _library_row_for_path, _native_drop, _native_drop_lock, _report_import_dupes
+from .importing import _library_row_for_path, _native_drop, _native_drop_lock, _paths_for_ids, _report_import_dupes, clipboard_image_png, clipboard_read
+from .network import _is_local_request
 
 
 @app.route("/api/pick-folder", methods=["POST"])
@@ -421,8 +422,14 @@ def api_import_native_drop():
         return jsonify({"error": f"Folder not found: {display}"}), 404
     if not os.access(target, os.W_OK):
         return jsonify({"error": f"No permission to write into {display}"}), 403
+    return jsonify(_import_local_files(get_db(), display, target, matched, keep_original))
 
-    db = get_db()
+
+def _import_local_files(db, display, target, matched, keep_original):
+    """Bring files that already sit on this machine into a library folder --
+    moved, or copied when keep_original. Shared by a drop whose paths pywebview
+    reported and by a paste of what Explorer put on the clipboard, so a file
+    arrives the same way whichever road it took."""
     added, skipped, new_ids, undo, relocated = [], [], [], [], []
     for f in matched:
         src, raw_name = f["path"], _safe_dropped_name(f["name"])
@@ -506,9 +513,71 @@ def api_import_native_drop():
         log(f"Not imported: {sk['name']} \u2014 {sk['why']}", "warning")
     if new_ids and _proc["auto"]:
         _proc_ensure_running(reset_progress=True)
-    return jsonify({"ok": True, "added": added, "skipped": skipped, "duplicates": dupes,
-                    "folder": display, "moved": not keep_original,
-                    "undo": undo, "relocated": relocated})
+    return {"ok": True, "added": added, "skipped": skipped, "duplicates": dupes,
+            "folder": display, "moved": not keep_original,
+            "undo": undo, "relocated": relocated}
+
+
+@app.route("/api/os-clipboard")
+def api_os_clipboard():
+    """What a paste would bring in from outside. ids= names the page's own
+    clipboard, so it can tell a copy made here from one made elsewhere since --
+    the same files coming back are still its own."""
+    if not _is_local_request():
+        return jsonify({"sig": "", "count": 0, "image": False, "ours": False})
+    c = clipboard_read()
+    files = [f for f in c["files"] if os.path.isfile(f)]
+    media = [f for f in files if os.path.splitext(f)[1].lower() in MEDIA_EXTENSIONS]
+    ids = [int(i) for i in (request.args.get("ids") or "").split(",") if i.isdigit()][:500]
+    ours = False
+    if ids and files:
+        norm = lambda l: sorted(os.path.normcase(os.path.abspath(x)) for x in l)
+        ours = norm(files) == norm(_paths_for_ids(ids))
+    return jsonify({"sig": c["sig"], "count": len(media), "other": len(files) - len(media),
+                    "names": [os.path.basename(f) for f in media[:3]], "move": c["move"],
+                    "image": bool(c["image"] and not files), "ours": ours})
+
+
+@app.route("/api/os-clipboard/paste", methods=["POST"])
+def api_os_clipboard_paste():
+    """Paste what was copied outside TrackImage into a library folder: files are
+    copied (moved after a Cut in Explorer, as Explorer itself would), a bare
+    picture -- a screenshot, "Copy image" in a browser -- is written as a PNG."""
+    if not _is_local_request():
+        return jsonify({"error": "The clipboard belongs to the computer TrackImage runs on"}), 403
+    display = ((request.get_json(silent=True) or {}).get("folder") or "").strip()
+    target = resolve_display_folder(display) if display else None
+    if not target or not os.path.isdir(target):
+        return jsonify({"error": f"Folder not found: {display or '(none)'}"}), 404
+    if not os.access(target, os.W_OK):
+        return jsonify({"error": f"No permission to write into {display}"}), 403
+    c = clipboard_read()
+    files = [{"name": os.path.basename(f), "path": f} for f in c["files"][:500] if os.path.isfile(f)]
+    if files:
+        return jsonify(_import_local_files(get_db(), display, target, files, not c["move"]))
+    png = clipboard_image_png() if c["image"] or os.name != "nt" else None
+    if not png:
+        return jsonify({"error": "Nothing on the clipboard to paste — copy a picture or a file first"}), 400
+    name = _free_filename(target, _time.strftime("Pasted %Y-%m-%d %H%M%S.png"))
+    dest = os.path.join(target, name)
+    with open(dest, "wb") as fh:
+        fh.write(png)
+    db = get_db()
+    cur = db.execute(
+        "INSERT OR IGNORE INTO images (filename,folder,filepath,width,height,"
+        "file_date,search_text,phash,media_type,meta_done) VALUES (?,?,?,?,?,?,?,?,?,0)",
+        (name, display, dest, 0, 0, get_file_date(dest), "", "", "image"))
+    new_ids = [cur.lastrowid] if cur.lastrowid else []
+    _db_commit_retry(db)
+    dupes = _report_import_dupes(db, new_ids, display)
+    if new_ids:
+        _db_commit_retry(db)
+        _mem_invalidate()
+    log(f"Pasted a picture into {display} as {name}", "success")
+    if new_ids and _proc["auto"]:
+        _proc_ensure_running(reset_progress=True)
+    return jsonify({"ok": True, "added": [{"name": name, "renamed": False}], "skipped": [],
+                    "duplicates": dupes, "folder": display})
 
 
 @app.route("/api/import/undo-move", methods=["POST"])

@@ -445,7 +445,7 @@ var KEY_ACTIONS=[
  ['undo',   'Undo the last move, delete or paste', 'ctrl+z',    'Everywhere'],
  ['copy',   'Copy the original file to the clipboard','ctrl+c', 'Gallery \u00b7 Full view'],
  ['cut',    'Cut the selected files',              'ctrl+x',    'Gallery'],
- ['paste',  'Paste into the open folder',          'ctrl+v',    'Gallery'],
+ ['paste',  'Paste into the folder under the mouse — files copied elsewhere too','ctrl+v','Gallery'],
  ['selectall','Select every picture in the view',  'ctrl+a',    'Gallery · Duplicates'],
  ['info',   'Show or hide the info panel',         'i',         'Gallery \u00b7 Full view'],
  ['bare',   'Whole-screen view',                   'f',         'Full view'],
