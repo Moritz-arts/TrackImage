@@ -432,10 +432,17 @@ function dupCardInfo(img,st){var inner=cardInfoInner(img)+dupBadges(img,st);if(!
 
 function dupDrop(e){e.preventDefault();e.stopPropagation();var z=document.getElementById('dup-dropzone');if(z)z.style.borderColor='var(--border)';var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(f&&f.type.indexOf('image')>=0)dupScanBlob(f);else showToast('Please drop an image file');}
 
+/* A single click selects, a double click opens -- the same as in the gallery.
+   A click on the one picture already selected used to open it, and in the app
+   window the press ahead of every click (see _cdPressSelected) had already
+   selected it, so each single click went straight to full screen. The press is
+   asked now, and a second click on a selected picture lets it go instead. */
 function dupCardClick(e,id,groupIdx){
+var pressPicked=(_cdPressSelected===id);_cdPressSelected=0;
 if(e.detail===2){openDupImage(id,groupIdx);return;}
 if(e.ctrlKey||e.metaKey){if(S.selectedImages.has(id))S.selectedImages.delete(id);else S.selectedImages.add(id);}
-else{if(S.selectedImages.size===1&&S.selectedImages.has(id)){S.selectedImages.clear();openDupImage(id,groupIdx);return;}
-S.selectedImages.clear();S.selectedImages.add(id);}
+else if(pressPicked){S.selectedImages.clear();S.selectedImages.add(id);}
+else if(S.selectedImages.size===1&&S.selectedImages.has(id)){S.selectedImages.clear();}
+else{S.selectedImages.clear();S.selectedImages.add(id);}
 updateDupSelectionUI();
 }
