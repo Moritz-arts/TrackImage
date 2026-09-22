@@ -15,7 +15,48 @@ function videoPlaybackFailed(){var a=document.getElementById('detail-img-area');
 
 function isBrowserPlayable(fn){var ext=fn.split('.').pop().toLowerCase();return !!BROWSER_VIDEO[ext];}
 
-function showDetailOverlay(){var old=document.getElementById('detail-overlay');if(old)old.remove();var img=S.images[S.currentImageIndex];if(!img)return;
+/* Stepping to the next picture used to flash black: the overlay was torn down
+   and rebuilt around an <img> whose file had not arrived yet, so for a moment
+   there was nothing to show. Pictures seen before did not flash -- the browser
+   still held them decoded -- and that is the whole fix: the next picture is
+   fetched and decoded while the current one stays on screen, the swap happens
+   once it is ready, and the neighbours are fetched ahead so the arrow keys
+   usually find them waiting. keepZoom is the arrow keys too: the zoom and the
+   spot looked at carry over, so sharpness can be compared picture to picture. */
+var _dvSeq=0,_dvPre={},_dvPreOrder=[];
+
+function _dvPreload(img){
+if(!img||img.is_video)return null;
+var e=_dvPre[img.id];if(e)return e.ready;
+var el=new Image();
+var ready=new Promise(function(res){
+  el.onload=function(){(el.decode?el.decode():Promise.resolve()).then(res,res);};
+  el.onerror=function(){res();};
+});
+el.src='/full/'+img.id;
+_dvPre[img.id]={el:el,ready:ready};_dvPreOrder.push(img.id);
+while(_dvPreOrder.length>6)delete _dvPre[_dvPreOrder.shift()];   /* a held Image keeps its pixels */
+return ready;
+}
+
+function _dvPreloadAround(){
+var i=S.currentImageIndex;
+_dvPreload(S.images[i+1]);_dvPreload(S.images[i-1]);
+}
+
+function showDetailOverlay(keepZoom){var img=S.images[S.currentImageIndex];if(!img)return;
+var seq=++_dvSeq;
+var wait=document.getElementById('detail-overlay')?_dvPreload(img):null;
+if(!wait)return _buildDetailOverlay(keepZoom);
+var done=false;
+function go(){if(done||seq!==_dvSeq)return;done=true;
+  /* closed, or moved on, while the file was still coming */
+  if(S.page!=='detail'||S.currentImageId!==img.id)return;
+  _buildDetailOverlay(keepZoom);}
+wait.then(go);setTimeout(go,1500);   /* a slow file is shown as it loads, not waited for forever */
+}
+
+function _buildDetailOverlay(keepZoom){var old=document.getElementById('detail-overlay');if(old)old.remove();_dz.apply=null;var img=S.images[S.currentImageIndex];if(!img)return;
 var ov=document.createElement('div');ov.id='detail-overlay';
 /* v4.53: the library stays reachable while a picture is open. Its own collapsed
    state, kept apart from the gallery's, so folding it away here does not fold it
@@ -32,25 +73,37 @@ if(img.is_video&&isBrowserPlayable(img.filename)){mediaHtml='<video id="detail-v
 else if(img.is_video){mediaHtml='<div style="display:flex;flex-direction:column;align-items:center;gap:16px"><img src="/thumb/'+img.id+'?h='+img.fphash+'" '+DRAGGABLE_ATTR+' ondragstart="onGalleryDragStart(event,'+img.id+')" onmousedown="ndPress(event,'+img.id+')" style="max-width:80%;max-height:70vh;border-radius:8px;object-fit:contain"/><button class="btn btn-primary" onclick="openInPlayer('+img.id+')" style="font-size:16px;padding:12px 32px">▶ Open in Player</button></div>';}
 else{mediaHtml='<img id="detail-img" src="/full/'+img.id+'" alt="'+esc(img.filename)+'" '+DRAGGABLE_ATTR+' ondragstart="onGalleryDragStart(event,'+img.id+')" onmousedown="ndPress(event,'+img.id+')"/>';}
 ov.innerHTML=libHtml+'<div class="detail-img-area" id="detail-img-area" oncontextmenu="showGalleryCtx(event,'+img.id+',true)">'+mediaHtml+'</div><div class="detail-sidebar'+(S.detailSidebarCollapsed?' collapsed':'')+'"><div class="ds-collapsed-bar" onclick="toggleDetailSidebar()" title="Expand panel"><span class="ds-arrow">\u25C0</span><span class="cc-label">Info</span></div><div class="detail-panel"><div style="display:flex;gap:6px;align-items:stretch"><div class="ac-wrap" style="position:relative;flex:1"><input class="detail-filename" id="rename-input" value="'+esc(img.filename)+'" onkeydown="if(event.key===\'Enter\'&&!document.querySelector(\'#detail-overlay .ac-list.open\')){this.blur();}" onblur="renameFile()"/></div><span class="ds-collapse-btn" onclick="toggleDetailSidebar()" title="Collapse panel">\u25B6</span></div><div class="detail-folder">'+(img.file_date?new Date(img.file_date*1000).toLocaleDateString():'')+'</div><div class="detail-folder">\ud83d\udcc1 '+esc(img.folder)+'</div><div id="detail-rating" style="font-size:13px;color:'+(img.rating?ratingColor(img.rating):'var(--accent-light)')+';font-weight:600;margin-top:2px">'+(img.rating?img.rating:'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm" onclick="openInExplorer('+img.id+')">\ud83d\udcc2 Locate in Explorer</button><button class="btn btn-sm" onclick="revealInLibrary('+img.id+')" title="Show this picture where it lives in TrackImage">\u25C6 Locate in TrackImage</button><button class="btn btn-sm" onclick="findSimilar('+img.id+')">\ud83d\udd0d Find Duplicates</button><button class="btn btn-sm btn-warning" onclick="removeMetadataSingle('+img.id+')" title="Strip EXIF / prompt / embedded metadata">Wipe metadata</button><button class="btn btn-sm btn-danger" onclick="deleteImage('+img.id+')">Delete</button></div><div class="detail-nav"><button class="btn btn-sm" onclick="prevImage()" '+(S.currentImageIndex<=0?'disabled':'')+'>← Prev</button><button class="btn btn-sm" onclick="closeDetail()">Back</button><button class="btn btn-sm" onclick="nextImage()" '+(S.currentImageIndex>=S.images.length-1&&S.allLoaded?'disabled':'')+'>Next →</button></div><div class="tags-panel" id="tags-panel">'+tagsPanelHtml(img)+'</div></div><div class="meta-panel" id="meta-panel">'+metaHeaderHtml()+'<div id="meta-body" class="meta-body"'+(_metaOpen()?'':' style="display:none"')+'><div class="meta-empty">Loading...</div></div></div></div>';
-document.body.appendChild(ov);S.detailZoom=1;S.detailPan={x:0,y:0};
+document.body.appendChild(ov);if(!keepZoom||img.is_video){S.detailZoom=1;S.detailPan={x:0,y:0};}
 var _zp=document.createElement('div');_zp.id='zoom-pct';_zp.title='Zoom \u2014 100% is one image pixel per screen pixel';
 try{var _ia=ov.querySelector('.detail-img-area');if(_ia)_ia.appendChild(_zp);}catch(_){}
 /* attach autocomplete to detail rename */
-var dri=document.getElementById('rename-input');if(dri)attachAutocomplete(dri,{mode:'rename',fetchItems:globalNameSuggest});hookAddTagAC();if(!img.is_video)setupDetailZoom();else{var vid=document.getElementById('detail-video');if(vid){vid.volume=S.volume;vid.addEventListener('volumechange',function(){S.volume=vid.volume;localStorage.setItem('ti_volume',String(vid.volume));});}var area=document.getElementById('detail-img-area');if(area)area.addEventListener('click',function(e){if(e.target===area){closeDetail();}});}setTimeout(function(){loadMetadata(img.id);loadDetailTags(img.id);},50);}
+var dri=document.getElementById('rename-input');if(dri)attachAutocomplete(dri,{mode:'rename',fetchItems:globalNameSuggest});hookAddTagAC();if(!img.is_video)setupDetailZoom();else{var vid=document.getElementById('detail-video');if(vid){vid.volume=S.volume;vid.addEventListener('volumechange',function(){S.volume=vid.volume;localStorage.setItem('ti_volume',String(vid.volume));});}var area=document.getElementById('detail-img-area');if(area)area.addEventListener('click',function(e){if(e.target===area){closeDetail();}});}setTimeout(function(){loadMetadata(img.id);loadDetailTags(img.id);},50);setTimeout(_dvPreloadAround,120);}
 
 async function openInPlayer(id){var r=await api('/api/image/'+id+'/open-file',{method:'POST'});if(r.error)showToast('Error: '+r.error);}
 
-function prevImage(){if(S.currentImageIndex>0){S.currentImageIndex--;S.currentImageId=S.images[S.currentImageIndex].id;showDetailOverlay();}}
+function prevImage(){if(S.currentImageIndex>0){S.currentImageIndex--;S.currentImageId=S.images[S.currentImageIndex].id;showDetailOverlay(true);}}
 
 async function nextImage(){
     // Auto-load more images if we're near the end and there are more available
     if(S.currentImageIndex>=S.images.length-3&&!S.allLoaded&&!S.loadingMore){
         await loadMoreImages();
     }
-    if(S.currentImageIndex<S.images.length-1){S.currentImageIndex++;S.currentImageId=S.images[S.currentImageIndex].id;showDetailOverlay();}
+    if(S.currentImageIndex<S.images.length-1){S.currentImageIndex++;S.currentImageId=S.images[S.currentImageIndex].id;showDetailOverlay(true);}
 }
 
-function setupDetailZoom(){var area=document.getElementById('detail-img-area');var imgEl=document.getElementById('detail-img');if(!area||!imgEl)return;var startX,startY,moved=false;
+/* The listeners on window are added once. They used to be added with every
+   picture, so after a few hundred of them each mouse move ran a few hundred
+   handlers against pictures long gone. They reach the current one through
+   _dz, which every picture takes over as it opens. */
+var _dz={sx:0,sy:0,moved:false,apply:null,hooked:false};
+
+function _dzHookWindow(){if(_dz.hooked)return;_dz.hooked=true;
+window.addEventListener('mousemove',function(e){if(!S.detailPanning)return;S.detailPan.x=e.clientX-_dz.sx;S.detailPan.y=e.clientY-_dz.sy;_dz.moved=true;if(_dz.apply)_dz.apply();});
+window.addEventListener('mouseup',function(){if(S.detailPanning){S.detailPanning=false;var a=document.getElementById('detail-img-area');if(a)a.classList.remove('panning');}});
+window.addEventListener('resize',function(){if(S.page==='detail'&&_dz.apply)_dz.apply();});
+}
+
+function setupDetailZoom(){var area=document.getElementById('detail-img-area');var imgEl=document.getElementById('detail-img');if(!area||!imgEl)return;_dzHookWindow();_dz.moved=false;
 area.addEventListener('wheel',function(e){e.preventDefault();var oldZ=S.detailZoom;var d=e.deltaY>0?0.85:1.15;S.detailZoom=Math.max(1,Math.min(12,S.detailZoom*d));if(S.detailZoom<=1){S.detailPan={x:0,y:0};}else{var areaRect=area.getBoundingClientRect();var cx=areaRect.left+areaRect.width/2;var cy=areaRect.top+areaRect.height/2;var mx=e.clientX-cx;var my=e.clientY-cy;var ratio=S.detailZoom/oldZ;S.detailPan.x=mx-(mx-S.detailPan.x)*ratio;S.detailPan.y=my-(my-S.detailPan.y)*ratio;}applyZoom();},{passive:false});
 /* v4.35: one place decides what a double-tap or a double-click does, so the
    mouse and the finger cannot disagree about it. */
@@ -67,9 +120,7 @@ area.addEventListener('dblclick',function(e){
   if(Date.now()-_tpTouchTs<800)return;   /* a finger already handled this one */
   toggleZoomAt(e.clientX,e.clientY);
 });
-area.addEventListener('mousedown',function(e){if(S.detailZoom<=1)return;if(e.target.tagName==='BUTTON')return;S.detailPanning=true;moved=false;startX=e.clientX-S.detailPan.x;startY=e.clientY-S.detailPan.y;area.classList.add('panning');e.preventDefault();});
-window.addEventListener('mousemove',function(e){if(!S.detailPanning)return;S.detailPan.x=e.clientX-startX;S.detailPan.y=e.clientY-startY;moved=true;applyZoom();});
-window.addEventListener('mouseup',function(){if(S.detailPanning){S.detailPanning=false;var a=document.getElementById('detail-img-area');if(a)a.classList.remove('panning');}});
+area.addEventListener('mousedown',function(e){if(S.detailZoom<=1)return;if(e.target.tagName==='BUTTON')return;S.detailPanning=true;_dz.moved=false;_dz.sx=e.clientX-S.detailPan.x;_dz.sy=e.clientY-S.detailPan.y;area.classList.add('panning');e.preventDefault();});
 /* v4.34: the same thing, for a finger.
    Everything above listens for a mouse. A phone synthesises mousedown for a
    tap but not for a drag, so a picture zoomed in by double-tapping could not be
@@ -85,7 +136,7 @@ area.addEventListener('touchstart',function(e){
   if(e.target&&e.target.tagName==='BUTTON')return;
   _tpTouchTs=Date.now();
   if(e.touches.length===1){
-    _tp.sx=e.touches[0].clientX;_tp.sy=e.touches[0].clientY;_tp.st=Date.now();moved=false;
+    _tp.sx=e.touches[0].clientX;_tp.sy=e.touches[0].clientY;_tp.st=Date.now();_dz.moved=false;
   }
   /* v4.35: below 1x the finger is still tracked -- a double-tap has to be
      recognised here rather than left to the browser, because once the picture is
@@ -104,7 +155,7 @@ area.addEventListener('touchstart',function(e){
   if(t.length===1){
     _tp.id=t[0].identifier;
     _tp.x=t[0].clientX-S.detailPan.x;_tp.y=t[0].clientY-S.detailPan.y;
-    area.classList.add('panning');moved=false;e.preventDefault();
+    area.classList.add('panning');_dz.moved=false;e.preventDefault();
   }
 },{passive:false});
 area.addEventListener('touchmove',function(e){
@@ -117,12 +168,12 @@ area.addEventListener('touchmove',function(e){
     if(nz<=1){S.detailPan={x:0,y:0};}
     else{S.detailPan.x=_tp.cx-(_tp.cx-_tp.px)*ratio;
          S.detailPan.y=_tp.cy-(_tp.cy-_tp.py)*ratio;}
-    moved=true;applyZoom();e.preventDefault();return;
+    _dz.moved=true;applyZoom();e.preventDefault();return;
   }
   if(_tp.id!==null&&t.length===1&&S.detailZoom>1){
     S.detailPan.x=t[0].clientX-_tp.x;
     S.detailPan.y=t[0].clientY-_tp.y;
-    moved=true;applyZoom();e.preventDefault();
+    _dz.moved=true;applyZoom();e.preventDefault();
   }
 },{passive:false});
 function _tpEnd(e){
@@ -143,22 +194,22 @@ function _tpEnd(e){
          pulling it to the right goes back. Once zoomed in, sideways means
          moving around inside the picture instead. */
       if(dx<0)nextImage();else prevImage();
-      _tp.tap=0;moved=false;return;
+      _tp.tap=0;_dz.moved=false;return;
     }
     if(Math.abs(dx)<24&&Math.abs(dy)<24&&dt<400){
       var now=Date.now();
       if(now-_tp.tap<320&&Math.abs(ct.clientX-_tp.tx)<48&&Math.abs(ct.clientY-_tp.ty)<48){
         _tp.tap=0;toggleZoomAt(ct.clientX,ct.clientY);
-        setTimeout(function(){moved=false;},60);return;
+        setTimeout(function(){_dz.moved=false;},60);return;
       }
       _tp.tap=now;_tp.tx=ct.clientX;_tp.ty=ct.clientY;
     }
   }
-  setTimeout(function(){moved=false;},60);
+  setTimeout(function(){_dz.moved=false;},60);
 }
 area.addEventListener('touchend',_tpEnd);
 area.addEventListener('touchcancel',_tpEnd);
-area.addEventListener('click',function(e){if(!moved&&S.detailZoom<=1){var close=false;if(e.target===area){close=true;}else if(e.target===imgEl){var r=imgEl.getBoundingClientRect();var s=Math.min(r.width/(imgEl.naturalWidth||1),r.height/(imgEl.naturalHeight||1));var vw=(imgEl.naturalWidth||1)*s,vh=(imgEl.naturalHeight||1)*s;var vl=r.left+(r.width-vw)/2,vt=r.top+(r.height-vh)/2;if(e.clientX<vl||e.clientX>vl+vw||e.clientY<vt||e.clientY>vt+vh)close=true;}if(close){closeDetail();}}moved=false;});
+area.addEventListener('click',function(e){if(!_dz.moved&&S.detailZoom<=1){var close=false;if(e.target===area){close=true;}else if(e.target===imgEl){var r=imgEl.getBoundingClientRect();var s=Math.min(r.width/(imgEl.naturalWidth||1),r.height/(imgEl.naturalHeight||1));var vw=(imgEl.naturalWidth||1)*s,vh=(imgEl.naturalHeight||1)*s;var vl=r.left+(r.width-vw)/2,vt=r.top+(r.height-vh)/2;if(e.clientX<vl||e.clientX>vl+vw||e.clientY<vt||e.clientY>vt+vh)close=true;}if(close){closeDetail();}}_dz.moved=false;});
 /* Fit factor: how much the natural-size image must shrink to sit inside the
    window. Images smaller than the window are scaled UP to fill it, keeping
    their aspect ratio, exactly as before. */
@@ -185,9 +236,9 @@ if(pct){pct.textContent=Math.round(eff*100)+'%';
         pct.style.display=(S.detailZoom>1?'block':'none');}
 }
 window._applyZoomNow=applyZoom;   /* so the settings slider updates a view that is already open */
+_dz.apply=applyZoom;
 syncPanelHidden();
 imgEl.addEventListener('load',function(){applyZoom();});
-window.addEventListener('resize',function(){if(S.page==='detail')applyZoom();});
 applyZoom();}
 
 async function renameFile(){var inp=document.getElementById('rename-input');if(!inp)return;var val=inp.value.trim();if(!val)return;var img=S.images[S.currentImageIndex];if(!img||val===img.filename)return;
