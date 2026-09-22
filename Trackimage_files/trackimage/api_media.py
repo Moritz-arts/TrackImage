@@ -91,7 +91,6 @@ def serve_full_image(image_id):
     return resp
 
 
-@app.route("/file/<int:image_id>")
 def _detail_name(fp):
     """Folder + file, which is what makes a line in the log recognisable."""
     try:
@@ -100,6 +99,10 @@ def _detail_name(fp):
         return str(fp)
 
 
+# The route sat on _detail_name above for a while, so /file/ answered every drag
+# out of a browser tab with a 500 and the drop arrived as nothing -- or as a
+# page. It belongs on the function that serves the original.
+@app.route("/file/<int:image_id>")
 def serve_original_file(image_id):
     """v4.12: the same bytes as /full/, but announced as a download and named.
     A drag hands this URL over, so the receiving program writes the file under its
