@@ -362,6 +362,7 @@ S.dupGroups=null;S._dupCachedMode=null;swapDupMain();}
 function onDupSlider(val){
 val=parseInt(val);S._collapsedGroups=new Set();
 var _tagCtx=(S._dupQuery?S._dupQuery.mode==='tags':S.simMode);
+if(!_tagCtx)val=DUP_STEPS[Math.max(0,Math.min(DUP_STEPS.length-1,val))];   /* a position, see DUP_STEPS */
 if(_tagCtx){S.simMatch=val;localStorage.setItem('ti_sim_match',String(val));}else S.dupThreshold=val;
 var el=document.getElementById('dup-threshold-val');if(el)el.textContent=val+'%';
 var _sb=document.getElementById('dup-smart-btn');if(_sb)_sb.style.opacity=(val===0?'':'.5');
