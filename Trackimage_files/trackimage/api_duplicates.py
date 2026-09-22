@@ -6,9 +6,11 @@ from flask import (
     Flask, render_template, request, jsonify,
     send_from_directory, g, make_response, Response
 )
+import os
 import threading
 import time as _time
-from .config import HAS_PHASH, app
+from .config import HAS_PHASH, Image, app
+from .logging_setup import log
 from .db import _db_commit_retry, _db_write_lock, _folder_args, _get_thread_db, get_db
 from .media import get_filepath_hash
 from .hashing import _sim_pct
@@ -234,3 +236,139 @@ def api_duplicates_cancel():
         _dup_progress["cancel"] = True
         return jsonify({"ok": True, "cancelling": True})
     return jsonify({"ok": True, "cancelling": False})
+
+
+# ---- Smart clean -------------------------------------------------------------
+# A matching hash says two pictures LOOK alike at thumbnail scale, which is not
+# the same thing as being the same picture: at 0% difference the pHash still
+# cannot see eyes that are open in one copy and shut in the other, or a hand
+# that closed. So nothing is deleted on the strength of the hash. Every copy is
+# compared with the one that stays, pixel against pixel, and only a copy that is
+# the same picture everywhere -- block by block, not on average, so one changed
+# eye is enough to keep it -- goes to the trash.
+
+_SC_SIDE = 1024          # compared at this long edge; finer than any hash
+_SC_BLOCK = 16           # a 16 px block is about the size of an eye at that scale
+_SC_BLOCK_MAX = 12       # worst block, mean difference out of 255
+_SC_MEAN_MAX = 4         # whole picture, mean difference out of 255
+
+
+def _sc_load(path, box=None):
+    from PIL import ImageOps
+    im = Image.open(path)
+    try:
+        im.draft("RGB", (box or (_SC_SIDE, _SC_SIDE)))   # JPEG decodes at a fraction
+    except Exception:
+        pass
+    im = ImageOps.exif_transpose(im)
+    return im.convert("RGB")
+
+
+def _sc_same_picture(keep, other):
+    """(True, '') when other is keep at a lower quality, else (False, why).
+    Both are PIL images, already decoded."""
+    from PIL import ImageChops
+    kw, kh = keep.size
+    ow, oh = other.size
+    if abs(kw / kh - ow / oh) > 0.01:
+        return False, "a different framing"
+    s = min(1.0, _SC_SIDE / max(kw, kh))
+    w, h = max(_SC_BLOCK, int(kw * s)), max(_SC_BLOCK, int(kh * s))
+    a = keep.resize((w, h), Image.BOX)
+    b = other.resize((w, h), Image.BOX)
+    d = ImageChops.difference(a, b)
+    r, g_, bl = d.split()
+    d = ImageChops.lighter(ImageChops.lighter(r, g_), bl)     # worst channel: colour counts
+    mean = sum(i * n for i, n in enumerate(d.histogram())) / float(w * h)
+    worst = d.resize((max(1, w // _SC_BLOCK), max(1, h // _SC_BLOCK)), Image.BOX).getextrema()[1]
+    if worst > _SC_BLOCK_MAX:
+        return False, "differs in one area"
+    if mean > _SC_MEAN_MAX:
+        return False, "differs in colour or detail"
+    return True, ""
+
+
+def _sc_rank(r):
+    """The copy that stays: most pixels, then the largest file (less compression
+    at the same size), then a rating, then the oldest -- a copy is made after its
+    original."""
+    return (-(r["px"]), -(r["size"]), -(r["rating"] or 0), r["file_date"] or 0, r["id"])
+
+
+@app.route("/api/duplicates/smart-clean", methods=["POST"])
+def api_duplicates_smart_clean():
+    """Plan (apply false) or carry out (apply true) the removal of the lesser
+    copies in each group. A plan is only ever carried out as it was shown: the
+    page sends back the pairs it confirmed, and each is checked to still exist."""
+    from .api_images import trash_images
+    data = request.get_json(silent=True) or {}
+    db = get_db()
+    if data.get("apply"):
+        pairs = [(int(p.get("id")), int(p.get("keep"))) for p in (data.get("remove") or [])
+                 if str(p.get("id", "")).isdigit() and str(p.get("keep", "")).isdigit()][:20000]
+        # A copy that stays for one pair is never removed for another: that
+        # would take away the very picture the other copies were kept against.
+        keepers = {k for _i, k in pairs}
+        ids = [i for i, k in pairs if i != k and i not in keepers and
+               db.execute("SELECT 1 FROM images WHERE id=?", (k,)).fetchone()]
+        deleted, trash_ids, errors = trash_images(db, ids)
+        _group_cache["ts"] = 0
+        log(f"Smart clean: {deleted} lesser cop{'y' if deleted == 1 else 'ies'} moved to the trash",
+            "success" if deleted else "info")
+        return jsonify({"ok": True, "deleted": deleted, "trash_ids": trash_ids, "errors": errors})
+
+    groups = [[int(i) for i in grp if str(i).isdigit()] for grp in (data.get("groups") or [])][:5000]
+    keep, remove, skipped, freed = [], [], [], 0
+    for grp in groups:
+        grp = list(dict.fromkeys(grp))[:200]
+        if len(grp) < 2:
+            continue
+        rows = db.execute("SELECT id, filename, folder, filepath, width, height, file_date, "
+                          "media_type, rating FROM images WHERE id IN (%s)" % ",".join("?" * len(grp)),
+                          grp).fetchall()
+        cand = []
+        for r in rows:
+            if (r["media_type"] or "image") != "image":
+                skipped.append({"id": r["id"], "filename": r["filename"], "why": "not a still picture"})
+                continue
+            try:
+                size = os.path.getsize(r["filepath"])
+            except OSError:
+                skipped.append({"id": r["id"], "filename": r["filename"], "why": "the file is missing"})
+                continue
+            px = (r["width"] or 0) * (r["height"] or 0)
+            if not px:                       # not processed yet: the header knows
+                try:
+                    with Image.open(r["filepath"]) as _im:
+                        px = _im.size[0] * _im.size[1]
+                except Exception:
+                    pass
+            cand.append({"id": r["id"], "filename": r["filename"], "folder": r["folder"],
+                         "path": r["filepath"], "px": px,
+                         "size": size, "rating": r["rating"], "file_date": r["file_date"]})
+        if len(cand) < 2:
+            continue
+        cand.sort(key=_sc_rank)
+        best = cand[0]
+        try:
+            ref = _sc_load(best["path"])
+        except Exception as e:
+            skipped.extend({"id": c["id"], "filename": c["filename"],
+                            "why": f"could not be read ({type(e).__name__})"} for c in cand)
+            continue
+        took = False
+        for c in cand[1:]:
+            try:
+                same, why = _sc_same_picture(ref, _sc_load(c["path"], ref.size))
+            except Exception as e:
+                same, why = False, f"could not be read ({type(e).__name__})"
+            if same:
+                remove.append({"id": c["id"], "keep": best["id"], "filename": c["filename"],
+                               "folder": c["folder"], "size": c["size"]})
+                freed += c["size"]; took = True
+            else:
+                skipped.append({"id": c["id"], "filename": c["filename"], "why": why})
+        if took:
+            keep.append({"id": best["id"], "filename": best["filename"], "folder": best["folder"]})
+    return jsonify({"ok": True, "keep": keep, "remove": remove, "skipped": skipped,
+                    "bytes": freed})

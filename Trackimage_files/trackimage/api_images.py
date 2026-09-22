@@ -446,6 +446,9 @@ def api_delete_image(image_id):
             short = (stem[:40] if stem else 'file') + ('.' + ext if ext else '')
             trash_name = f"{int(_time.time()*1000)}_{short}"
             trash_path = os.path.join(trash_dir, trash_name)
+        _n = 1                              # same reason as in trash_images below
+        while os.path.exists(trash_path) or os.path.exists(trash_path + ".xmp"):
+            trash_path = os.path.join(trash_dir, f"{_n}_{trash_name}"); _n += 1
         moved = False
         rename_err = None
         if os.path.exists(fp):
@@ -687,6 +690,14 @@ def api_bulk_restore():
 def api_bulk_delete():
     db = get_db()
     ids = request.get_json().get("ids", [])
+    deleted, trash_ids, errors = trash_images(db, ids)
+    return jsonify({"ok": True, "deleted": deleted, "trash_ids": trash_ids, "errors": errors})
+
+
+def trash_images(db, ids):
+    """Move pictures to the trash and forget them. Returns (deleted, trash_ids,
+    errors). Shared with the duplicates page's Smart clean, so both delete the
+    same undoable way."""
     trash_dir = os.path.join(app.instance_path, ".trash")
     os.makedirs(trash_dir, exist_ok=True)
     deleted = 0
@@ -705,6 +716,12 @@ def api_bulk_delete():
             short = (stem[:40] if stem else 'file') + ('.' + ext if ext else '')
             trash_name = f"{int(_time.time()*1000)}_{short}"
             trash_path = os.path.join(trash_dir, trash_name)
+        # Copies of one picture usually share its name, and several of them go in
+        # the same millisecond -- the same trash name, and the second rename
+        # replaced the first one's file, which then could not be restored.
+        _n = 1
+        while os.path.exists(trash_path) or os.path.exists(trash_path + ".xmp"):
+            trash_path = os.path.join(trash_dir, f"{_n}_{trash_name}"); _n += 1
         if os.path.exists(fp):
             try:
                 os.rename(fp, trash_path)
@@ -727,7 +744,7 @@ def api_bulk_delete():
     db.execute("DELETE FROM characters WHERE id NOT IN (SELECT DISTINCT character_id FROM image_characters)")
     db.commit()
     delete_pairs_for_images(db, gone)
-    return jsonify({"ok": True, "deleted": deleted, "trash_ids": trash_ids, "errors": errors})
+    return deleted, trash_ids, errors
 
 
 @app.route("/api/images/bulk-rename", methods=["POST"])
