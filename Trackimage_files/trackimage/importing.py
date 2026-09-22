@@ -417,6 +417,109 @@ def _clipboard_put(paths, mode):
         return False, f"{type(e).__name__}: {e}"
 
 
+def _clip_win_read():
+    """What Explorer (or anything else) left on the clipboard: the file list of a
+    copy or a cut, and whether a bare picture is there. The sequence number
+    changes with every change of the clipboard, which is how the page tells its
+    own copy apart from something copied elsewhere afterwards."""
+    import ctypes
+    from ctypes import wintypes as w
+    k32, u32 = _win_clip_api()
+    sh = ctypes.WinDLL("shell32", use_last_error=True)
+    HANDLE = ctypes.c_void_p
+    u32.GetClipboardData.argtypes = [w.UINT];            u32.GetClipboardData.restype = HANDLE
+    u32.IsClipboardFormatAvailable.argtypes = [w.UINT];  u32.IsClipboardFormatAvailable.restype = w.BOOL
+    u32.GetClipboardSequenceNumber.argtypes = [];        u32.GetClipboardSequenceNumber.restype = w.DWORD
+    sh.DragQueryFileW.argtypes = [HANDLE, w.UINT, w.LPWSTR, w.UINT]; sh.DragQueryFileW.restype = w.UINT
+    out = {"sig": "w%d" % u32.GetClipboardSequenceNumber(), "files": [], "move": False, "image": False}
+    for _ in range(10):
+        if u32.OpenClipboard(None):
+            break
+        _time.sleep(0.05)
+    else:
+        return out
+    try:
+        CF_HDROP, CF_BITMAP, CF_DIB, CF_DIBV5 = 15, 2, 8, 17
+        png = u32.RegisterClipboardFormatW("PNG")
+        out["image"] = any(u32.IsClipboardFormatAvailable(f) for f in (CF_DIB, CF_DIBV5, CF_BITMAP, png) if f)
+        h = u32.GetClipboardData(CF_HDROP) if u32.IsClipboardFormatAvailable(CF_HDROP) else None
+        if h:
+            for i in range(min(sh.DragQueryFileW(h, 0xFFFFFFFF, None, 0), 2000)):
+                n = sh.DragQueryFileW(h, i, None, 0)
+                buf = ctypes.create_unicode_buffer(n + 1)
+                sh.DragQueryFileW(h, i, buf, n + 1)
+                if buf.value:
+                    out["files"].append(buf.value)
+        fmt = u32.RegisterClipboardFormatW("Preferred DropEffect")
+        if fmt and u32.IsClipboardFormatAvailable(fmt):
+            hd = u32.GetClipboardData(fmt)
+            p = k32.GlobalLock(hd) if hd else None
+            if p:
+                eff = ctypes.c_uint32.from_address(p).value
+                k32.GlobalUnlock(hd)
+                out["move"] = bool(eff & 2) and not (eff & 1)      # a Cut in Explorer
+    finally:
+        u32.CloseClipboard()
+    return out
+
+
+def clipboard_read():
+    """The OS clipboard as {sig, files, move, image}. Never raises; an empty
+    answer only means nothing usable is there."""
+    out = {"sig": "", "files": [], "move": False, "image": False}
+    try:
+        if os.name == "nt":
+            return _clip_win_read()
+        if sys.platform == "darwin":
+            r = subprocess.run(["osascript", "-e",
+                                'set o to ""\nrepeat with f in (the clipboard as \u00abclass furl\u00bb as list)\n'
+                                'set o to o & POSIX path of f & linefeed\nend repeat\nreturn o'],
+                               **_no_window({"capture_output": True, "timeout": 5}))
+            out["files"] = [l for l in (r.stdout or b"").decode("utf-8", "replace").splitlines() if l]
+            if not out["files"]:
+                r = subprocess.run(["osascript", "-e", "clipboard info"],
+                                   **_no_window({"capture_output": True, "timeout": 5}))
+                out["image"] = b"PNGf" in (r.stdout or b"") or b"TIFF" in (r.stdout or b"")
+        else:
+            for types_cmd, get_cmd in (
+                    (["wl-paste", "--list-types"], ["wl-paste", "--no-newline", "--type"]),
+                    (["xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"],
+                     ["xclip", "-selection", "clipboard", "-o", "-t"])):
+                if not shutil.which(types_cmd[0]):
+                    continue
+                t = subprocess.run(types_cmd, capture_output=True, timeout=5).stdout.decode("utf-8", "replace")
+                if "text/uri-list" in t:
+                    from urllib.parse import unquote, urlparse
+                    raw = subprocess.run(get_cmd + ["text/uri-list"], capture_output=True, timeout=5).stdout
+                    for line in raw.decode("utf-8", "replace").splitlines():
+                        u = urlparse(line.strip())
+                        if u.scheme == "file" and u.path:
+                            out["files"].append(unquote(u.path))
+                out["image"] = "image/png" in t
+                break
+        import zlib
+        out["sig"] = "p%d" % zlib.crc32(("\n".join(out["files"]) + ("|img" if out["image"] else "")).encode("utf-8"))
+    except Exception as e:
+        log(f"Could not read the clipboard: {type(e).__name__}", "warning")
+    return out
+
+
+def clipboard_image_png():
+    """A bare picture on the clipboard as PNG bytes, or None."""
+    try:
+        from PIL import ImageGrab
+        import io
+        im = ImageGrab.grabclipboard()
+        if im is None or isinstance(im, list):
+            return None
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        return buf.getvalue()
+    except Exception as e:
+        log(f"Could not read the picture on the clipboard: {type(e).__name__}", "warning")
+        return None
+
+
 def _paths_for_ids(ids):
     """Disk paths for a list of image ids, kept in the order they were given --
     the order a drag or a paste presents them in."""

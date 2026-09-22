@@ -169,6 +169,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg-primary)
 /* v3.91: menu icons + quick access toolbar */
 .ctx-menu-item .mi{flex:none;opacity:.8;}
 .ctx-menu-item.gold{color:var(--accent);}
+.ctx-menu-item.disabled{opacity:.45;cursor:default;}.ctx-menu-item.disabled:hover{background:none;}
 .ctx-menu-item.gold:hover{background:rgba(240,180,41,.10);}
 .qa-bar{display:flex;align-items:center;gap:2px;padding:0 8px 0 4px;margin-right:4px;border-right:1px solid var(--border);}
 .qa-btn{display:flex;align-items:center;justify-content:center;width:28px;height:26px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text-secondary);cursor:pointer;transition:all var(--transition);}
