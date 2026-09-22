@@ -239,6 +239,7 @@ document.addEventListener('keydown',function(e){
     if(_act==='copy'&&S.page==='gallery'&&S.selectedImages.size){if(inTextField())return;e.preventDefault();copyToClipboard();return;}
     if(_act==='cut'&&S.page==='gallery'&&S.selectedImages.size){if(inTextField())return;e.preventDefault();cutToClipboard();return;}
     if(_act==='paste'&&S.page==='gallery'&&S.clipboard.ids.length){if(inTextField())return;e.preventDefault();pasteAtCurrent();return;}
+    if(_act==='selectall'&&(S.page==='gallery'||S.page==='duplicates')){if(inTextField())return;e.preventDefault();selectAllInView();return;}
     if(_act==='info'&&(S.page==='gallery'||S.page==='detail')){
         if(inTextField())return;
         e.preventDefault();

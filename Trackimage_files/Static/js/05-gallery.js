@@ -268,3 +268,24 @@ return el;
 }
 
 function renderGallery(){if(!S.initialized)return renderSetup();_folderPaths=[];var tree=buildFolderTree();var allCount=S.filter.search?(S.filteredTotal||0):getFolderTotal();var fw=S.folderColW,tw=S.tagColW;return '<div class="gallery-layout" style="--folder-col-w:'+fw+'px;--tag-col-w:'+tw+'px">'+renderTopbar()+'<div class="sidebar"><div class="sidebar-col-wrap folders-wrap'+(S.foldersCollapsed?' collapsed':'')+'" id="folders-wrap"><div class="col-collapsed-bar" onclick="toggleSidebarCol(\'folders\')" title="Expand"><span>\u25B6</span><span class="cc-label">Folders</span></div><div class="sidebar-col folders-col" id="folders-col"><div class="sidebar-title"><span>Folders</span><span class="sel-count-folders" style="display:none;font-family:\'Space Mono\',monospace;font-size:10px;color:var(--accent-light)"></span><span class="col-collapse-btn" onclick="toggleSidebarCol(\'folders\')" title="Collapse">\u25C0</span></div>'+renderFolderNode(tree,0)+'<div class="link-folder-btn" onclick="pickAndAddFolder()">Link new folder</div></div><div class="col-resizer" onmousedown="startResize(event,\'folder\')"></div></div><div class="sidebar-col-wrap tags-wrap'+(S.tagsCollapsed?' collapsed':'')+'" id="tags-wrap"><div class="col-collapsed-bar" onclick="toggleSidebarCol(\'tags\')" title="Expand"><span>\u25B6</span><span class="cc-label">Tags</span></div><div class="sidebar-col tags-col" id="tags-col">'+tagColInner(allCount)+'</div><div class="col-resizer" onmousedown="startResize(event,\'tag\')"></div></div></div><div class="main" id="main-area">'+renderMainContent()+'</div></div>';}
+
+/* Ctrl+A: every picture the view holds. The grid only ever has the first pages
+   loaded, so selecting what is on screen would quietly leave the rest out --
+   the ids of the whole filter are asked for once instead. */
+async function selectAllInView(){
+    if(S.page==='duplicates'){
+        (S.dupGroups||[]).forEach(function(g){(g.images||g).forEach(function(im){S.selectedImages.add(im.id);});});
+        updateDupSelectionUI();showToast(S.selectedImages.size+' selected');return;
+    }
+    if(S.page!=='gallery')return;
+    S.images.forEach(function(i){S.selectedImages.add(i.id);});updateSelectionUI();
+    if(!S.allLoaded){
+        var _ep=S.navEpoch||0;
+        var p=new URLSearchParams();S.filter.characters.forEach(function(c){p.append('character',c);});S.filter.ratings.forEach(function(r){p.append('rating',r);});(S.filter.tags||[]).forEach(function(t){p.append('tag',t);});folderParams(p);if(S.filter.search)p.set('search',S.filter.search);p.set('ids_only','1');
+        var d=null;try{d=await api('/api/images?'+p);}catch(_e){}
+        if(_ep!==(S.navEpoch||0)||S.page!=='gallery')return;
+        if(d&&d.ids)d.ids.forEach(function(id){S.selectedImages.add(id);});
+        updateSelectionUI();
+    }
+    showToast(S.selectedImages.size+' selected');
+}
