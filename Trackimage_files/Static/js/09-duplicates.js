@@ -223,9 +223,11 @@ S.page='duplicates';S.simMode=false;S._dupQuery={thumb:'/thumb/'+imgId,label:_fn
 }
 
 /* ---- Smart clean -----------------------------------------------------------
-   One group at a time, on purpose: the dialog shows every picture of that group
-   -- the one that stays, the ones that go and why the rest stay too -- and a
-   list of that is something one can actually read before saying yes.
+   Two steps, one group at a time. The first only MARKS: the copies that would go
+   turn grey in the group itself, where they can still be opened, zoomed and
+   compared, and any of them can be kept with a click. Nothing is deleted until
+   the second button says so. A dialog listing file names was a list one had to
+   trust; the pictures themselves are something one can check.
 
    The copy that stays has the most pixels AND the least compression. The
    compression is measured in the pixels (the JPEG grid, see _sc_blockiness),
@@ -235,27 +237,46 @@ S.page='duplicates';S.simMode=false;S._dupQuery={thumb:'/thumb/'+imgId,label:_fn
    difference SMART_MAX, and even there the hash is not taken at its word: the
    server compares every copy with the one that stays, pixel against pixel, and
    a copy that is moved by a pixel or changed anywhere stays. GIFs, videos and
-   animated pictures are never candidates. Ctrl+Z brings back what went. */
+   animated pictures are never candidates. Ctrl+Z brings back what went.
+
+   The marks live on the group object, so a group rebuilt by the slider or a
+   refresh starts clean -- a plan is never carried over onto a different group. */
 function dupSmartOn(){return !(S.simMode||(S._dupQuery&&S._dupQuery.mode==='tags')||S.dupShowIgnored);}
 
 function dupSmartThr(){return S._dupQuery?S.dupThreshold:_dupThr();}
 
+function _scGoCount(g){return g&&g._sc?Object.keys(g._sc.go).length:0;}
+
 function dupSmartBtn(gi){
 if(!dupSmartOn())return '';
+var g=S.dupGroups&&S.dupGroups[gi];
+if(g&&g._sc){var n=_scGoCount(g);
+  return (n?'<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();dupScConfirm('+gi+')" style="margin-right:6px" title="Move the greyed copies to the trash — Ctrl+Z brings them back">🗑 Delete '+n+' marked ('+fmtBytes(_scBytes(g))+')</button>':'')
+   +'<button class="btn btn-sm" onclick="event.stopPropagation();dupScCancel('+gi+')" style="margin-right:6px">'+(n?'Cancel':'Clear marks')+'</button>';}
 var ok=dupSmartThr()<=SMART_MAX;
-return '<button class="btn btn-sm btn-warning" onclick="event.stopPropagation();dupSmartCleanGroup('+gi+')" style="margin-right:6px'+(ok?'':';opacity:.5')+'" title="'+(ok?'Keep the best copy of this group and move the lesser copies to the trash — only copies that are the same picture, pixel for pixel':'Set Max difference to '+SMART_MAX+'% or less first')+'">✨ Smart clean</button>';}
+return '<button class="btn btn-sm btn-warning" onclick="event.stopPropagation();dupSmartCleanGroup('+gi+')" style="margin-right:6px'+(ok?'':';opacity:.5')+'" title="'+(ok?'Mark the lesser copies of this group — nothing is deleted until you confirm':'Set Max difference to '+SMART_MAX+'% or less first')+'">✨ Smart clean</button>';}
+
+function _scBytes(g){var t=0;Object.keys(g._sc.go).forEach(function(id){t+=(g._sc.info[id]&&g._sc.info[id].size)||0;});return t;}
 
 /* How much JPEG damage the pixels show, in words. */
-function _scGrade(g){if(g==null)return '';if(g<=1.03)return 'no visible compression';if(g<=1.15)return 'light compression';if(g<=1.35)return 'medium compression';if(g<=1.6)return 'strong compression';return 'heavy compression';}
+function _scGrade(c){if(!c||c.grid==null)return '';var g=c.grid;if(g<=1.03)return 'no visible compression';if(g<=1.15)return 'light compression';if(g<=1.35)return 'medium compression';if(g<=1.6)return 'strong compression';return 'heavy compression';}
 
-function _scRow(c,note,col){
-var im=findImageAnywhere(c.id);var th='/thumb/'+c.id+(im&&im.fphash?'?h='+im.fphash:'');
-var bits=[];if(c.w)bits.push(c.w+'×'+c.h);if(c.size)bits.push(fmtBytes(c.size));if(c.fmt)bits.push(c.fmt);var gr=_scGrade(c.grid);if(gr)bits.push(gr);
-return '<div style="display:flex;gap:10px;align-items:center;margin:6px 0"><img src="'+th+'" style="width:46px;height:46px;object-fit:cover;border-radius:5px;flex:none;border:1px solid var(--border)"/>'
- +'<div style="min-width:0;font-size:12px;line-height:1.45"><div style="font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.filename)+'</div>'
- +'<div style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📁 '+esc(c.folder||'')+'</div>'
- +'<div style="color:var(--text-secondary)">'+esc(bits.join(' · '))+'</div>'
- +(note?'<div style="color:'+(col||'var(--text-secondary)')+'">'+esc(note)+'</div>':'')+'</div></div>';}
+function _scDesc(c){if(!c)return '';var b=[];if(c.w)b.push(c.w+'×'+c.h);if(c.size)b.push(fmtBytes(c.size));if(c.fmt)b.push(c.fmt);var gr=_scGrade(c);if(gr)b.push(gr);return b.join(' · ');}
+
+/* {state:'go'|'best'|'stay', why} for one picture of a marked group, or null. */
+function dupScMark(g,id){var m=g&&g._sc;if(!m)return null;
+if(m.go[id])return {state:'go'};if(m.best[id])return {state:'best'};if(m.stay[id]!=null)return {state:'stay',why:m.stay[id]};return null;}
+
+function dupScBadge(gi,id,mk){var g=S.dupGroups[gi];var info=_scDesc(g._sc.info[id]);
+if(mk.state==='go')return '<div class="sc-badge sc-b-go" title="'+esc('The same picture as the copy that stays, at a lower quality — '+info)+'">→ Trash</div><button class="sc-keep" onclick="event.stopPropagation();dupScKeep('+gi+','+id+')" onmousedown="event.stopPropagation()" title="Keep this one after all">Keep</button>';
+if(mk.state==='best')return '<div class="sc-badge sc-b-best" title="'+esc('Stays — '+info)+'">✓ Stays</div>';
+return '<div class="sc-badge sc-b-stay" title="'+esc('Stays — '+(mk.why||'')+(info?' — '+info:''))+'">Stays · '+esc(mk.why||'')+'</div>';}
+
+function _scRedraw(){
+var dr=document.getElementById('dup-results');if(dr)dr.innerHTML=renderDupGroups(S.dupGroups);
+var tot=S.dupGroups.reduce(function(n,x){return n+(x.images||x).length;},0);
+var st=document.getElementById('dup-stats');if(st&&!S._dupQuery)st.textContent=S.dupGroups.length+' group'+(S.dupGroups.length!==1?'s':'')+' · '+tot+' images';
+updateDupSelectionUI();}
 
 async function dupSmartCleanGroup(gi){
 if(!dupSmartOn())return;
@@ -268,35 +289,40 @@ showToast('Comparing '+ids.length+' pictures pixel by pixel…');
 var plan=null;
 try{plan=await api('/api/duplicates/smart-clean',{method:'POST',body:JSON.stringify({groups:[ids]})});}catch(e){plan={error:String(e)};}
 if(!plan||plan.error)return showToast('Smart clean: '+((plan&&plan.error)||'failed'),'error');
-var rm=plan.remove||[],best=plan.best||[],stay=plan.skipped||[];
-var h='<b>Smart clean — Group '+(gi+1)+'</b>';
-h+='<div style="margin-top:12px;font-weight:600;color:var(--success)">Stays'+(best.length>1?' — '+best.length+' copies, none better on both counts':'')+'</div>'
- +(best.length>1?'<div style="font-size:12px;color:var(--text-muted)">More pixels in one, less compression in another — or formats whose compression cannot be compared (WebP, HEIC, AVIF). That is yours to decide.</div>':'');
-best.forEach(function(c){h+=_scRow(c,best.length>1?'':'most pixels, least compression','var(--success)');});
-if(rm.length){h+='<div style="margin-top:12px;font-weight:600;color:var(--danger)">Moves to the trash — '+rm.length+' ('+fmtBytes(plan.bytes||0)+')</div>';
-  rm.forEach(function(c){h+=_scRow(c,'the same picture, pixel for pixel, at a lower quality','var(--danger)');});}
-if(stay.length){h+='<div style="margin-top:12px;font-weight:600;color:var(--text-secondary)">Also stays</div>';
-  stay.forEach(function(c){h+=_scRow(c,c.why);});}
-if(!rm.length){await showConfirm('<div style="max-height:62vh;overflow:auto;padding-right:4px">'+h+'<div style="margin-top:12px">Nothing in this group can go without losing something.</div></div>',[{label:'OK',key:'ok',cls:'primary'}]);return;}
-h+='<div style="margin-top:12px;font-size:12px;color:var(--text-muted)">GIFs, videos and animated pictures are never removed. Ctrl+Z brings everything back.</div>';
-var ok=await showConfirm('<div style="max-height:62vh;overflow:auto;padding-right:4px">'+h+'</div>',[{label:'Cancel',key:'cancel'},{label:'Move '+rm.length+' to trash',key:'ok',cls:'danger'}]);
-if(!ok)return;
+if(S.dupGroups[gi]!==g)return;          /* the page moved on while the pixels were compared */
+var m={go:{},best:{},stay:{},info:{}};
+(plan.best||[]).forEach(function(c){m.best[c.id]=1;m.info[c.id]=c;});
+(plan.remove||[]).forEach(function(c){m.go[c.id]=c.keep;m.info[c.id]=c;});
+(plan.skipped||[]).forEach(function(c){m.stay[c.id]=c.why||'';m.info[c.id]=c;});
+g._sc=m;_scRedraw();
+var n=_scGoCount(g);
+showToast(n?(n+' cop'+(n!==1?'ies':'y')+' marked grey — check them, then Delete '+n+' marked'):'Nothing in this group can go without losing something',n?'success':'');
+}
+
+function dupScKeep(gi,id){var g=S.dupGroups[gi];if(!g||!g._sc)return;delete g._sc.go[id];g._sc.stay[id]='kept by you';_scRedraw();}
+
+function dupScCancel(gi){var g=S.dupGroups[gi];if(g)delete g._sc;_scRedraw();}
+
+async function dupScConfirm(gi){
+var g=S.dupGroups[gi];if(!g||!g._sc)return;
+var present={};(g.images||g).forEach(function(i){present[i.id]=1;});
+if(S._dupQuery&&S._dupQuery.imgId)present[S._dupQuery.imgId]=1;
+var rm=Object.keys(g._sc.go).map(Number).filter(function(id){return present[id]&&present[g._sc.go[id]];})
+          .map(function(id){return {id:id,keep:g._sc.go[id]};});
+if(!rm.length){delete g._sc;_scRedraw();return;}
 var r=null;
-try{r=await api('/api/duplicates/smart-clean',{method:'POST',body:JSON.stringify({apply:true,remove:rm.map(function(p){return {id:p.id,keep:p.keep};})})});}catch(e){r={error:String(e)};}
+try{r=await api('/api/duplicates/smart-clean',{method:'POST',body:JSON.stringify({apply:true,remove:rm})});}catch(e){r={error:String(e)};}
 if(!r||r.error)return showToast('Smart clean: '+((r&&r.error)||'failed'),'error');
 if(r.trash_ids&&r.trash_ids.length)pushUndo({type:'delete_bulk',trashIds:r.trash_ids});
 showToast(r.deleted+' cop'+(r.deleted!==1?'ies':'y')+' moved to the trash'+((r.errors||[]).length?' — '+r.errors.length+' could not be moved':''),'success',true);
 var gone=new Set(rm.map(function(p){return p.id;}));
-S.selectedImages.clear();
+delete g._sc;S.selectedImages.clear();
 var a=g.images||g;for(var i=a.length-1;i>=0;i--){if(gone.has(a[i].id))a.splice(i,1);}
 if(S._dupQuery){
   /* the slider re-filters from allMatches, which would bring the deleted back */
   S._dupQuery.allMatches=(S._dupQuery.allMatches||[]).filter(function(m){return !gone.has(m.id);});
   if(gone.has(S._dupQuery.imgId)){clearDupQuery();Promise.all([loadImagesPreserve(),loadFolders(),loadCharacters(),loadStats()]);return;}
 }else S.dupGroups=S.dupGroups.filter(function(x){return (x.images||x).length>1;});
-var dr=document.getElementById('dup-results');if(dr)dr.innerHTML=renderDupGroups(S.dupGroups);
-var tot=S.dupGroups.reduce(function(n,x){return n+(x.images||x).length;},0);
-var st=document.getElementById('dup-stats');if(st)st.textContent=S.dupGroups.length+' group'+(S.dupGroups.length!==1?'s':'')+' · '+tot+' images';
-updateDupSelectionUI();
+_scRedraw();
 Promise.all([loadImagesPreserve(),loadFolders(),loadCharacters(),loadStats()]);
 }

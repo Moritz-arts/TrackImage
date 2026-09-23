@@ -263,6 +263,14 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg-primary)
 .gallery-item .card-filename-row{display:flex;align-items:center;gap:6px;}
 .gallery-item .card-filename{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
 .gallery-item .card-folder{font-size:11px;color:var(--text-muted);margin-top:2px;line-height:1.35;height:2.7em;overflow:hidden;word-break:keep-all;overflow-wrap:normal;}
+/* Smart clean marks: grey = would go, still there to open and compare. */
+.gallery-item.sc-go .img-wrap img{filter:grayscale(1) brightness(.5);}
+.gallery-item.sc-go{border-color:var(--danger);opacity:.85;}
+.gallery-item.sc-best{border-color:var(--success);box-shadow:0 0 0 1px var(--success);}
+.sc-badge{position:absolute;left:6px;bottom:6px;max-width:calc(100% - 12px);padding:3px 7px;border-radius:5px;font-size:11px;font-weight:600;background:rgba(0,0,0,.72);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+.sc-b-go{color:#ff8a70;}.sc-b-best{color:var(--success);}.sc-b-stay{color:var(--text-secondary);font-weight:500;}
+.sc-keep{position:absolute;top:6px;right:6px;padding:2px 9px;border-radius:5px;border:1px solid var(--border);background:rgba(0,0,0,.72);color:var(--text-primary);font-size:11px;font-weight:600;cursor:pointer;}
+.sc-keep:hover{border-color:var(--accent);color:var(--accent-light);}
 .gallery-item .video-badge{position:absolute;top:6px;left:6px;background:rgba(0,0,0,.7);color:var(--accent);font-size:11px;padding:2px 6px;border-radius:4px;font-weight:600;}
 .gallery-item .rating-badge{color:var(--accent-light);font-size:12px;font-weight:700;margin-left:auto;flex-shrink:0;}
 .load-more{display:flex;align-items:center;justify-content:center;padding:30px 0;}
