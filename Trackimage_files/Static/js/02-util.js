@@ -330,8 +330,9 @@ imgs.forEach(function(im){var px=(im.width||0)*(im.height||0);if(px>_bestPx){_be
 var _gst=dupGroupStats(imgs);
 imgs.forEach(function(img){
 var sel=S.selectedImages.has(img.id)?' selected':'';
-h+='<div class="gallery-item'+sel+'" data-id="'+img.id+'" data-group="'+gi+'" data-w="'+(img.width||0)+'" data-h="'+(img.height||0)+'" oncontextmenu="showGalleryCtx(event,'+img.id+')" onclick="dupCardClick(event,'+img.id+','+gi+')" '+DRAGGABLE_ATTR+' ondragstart="onGalleryDragStart(event,'+img.id+')" onmousedown="ndPress(event,'+img.id+')" ondragend="onGalleryDragEnd()">';
-h+='<div class="img-wrap"'+wrapStyle(img)+'>'+cardMediaHtml(img)
+var _scm=dupScMark(group,img.id);
+h+='<div class="gallery-item'+sel+(_scm?' sc-'+_scm.state:'')+'" data-id="'+img.id+'" data-group="'+gi+'" data-w="'+(img.width||0)+'" data-h="'+(img.height||0)+'" oncontextmenu="showGalleryCtx(event,'+img.id+')" onclick="dupCardClick(event,'+img.id+','+gi+')" '+DRAGGABLE_ATTR+' ondragstart="onGalleryDragStart(event,'+img.id+')" onmousedown="ndPress(event,'+img.id+')" ondragend="onGalleryDragEnd()">';
+h+='<div class="img-wrap"'+wrapStyle(img)+'>'+cardMediaHtml(img)+(_scm?dupScBadge(gi,img.id,_scm):'')
  +'</div>'+dupCardInfo(img,_gst)+'</div>';
 });
 h+='</div></div>';});
