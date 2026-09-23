@@ -317,9 +317,11 @@ function renderVenv(){
     var el=document.getElementById('venv-body');if(!el)return;
     if(v.error)return el.innerHTML='<p style="color:var(--danger)">'+esc(v.error)+'</p>';
     var body;
-    if(v.ok){
-        body='<p style="color:var(--success)">\u2713 '+(v.checked||0).toLocaleString()+
-             ' files match what pip recorded'+(v.deep?' \u2014 contents verified':' \u2014 sizes verified')+'.</p>';
+    if(v.ok&&!(v.checked>0)){
+        body='<div class="s-note" style="margin:0">Auto-tagging is not installed yet \u2014 there is nothing to check.</div>';
+    }else if(v.ok){
+        body='<div style="color:var(--success);font-size:13px">\u2713 All '+(v.checked||0).toLocaleString()+
+             ' files match what pip recorded'+(v.deep?' \u2014 contents verified':' \u2014 sizes verified')+'.</div>';
     }else{
         var list=(v.damaged||[]).map(function(d){
             return '<li>'+esc(d.file)+' \u2014 expected '+esc(d.expected)+', found '+esc(d.found)+'</li>';}).join('')+
@@ -332,14 +334,12 @@ function renderVenv(){
     /* All three buttons, always. Repair says plainly when there is nothing to do
        rather than hiding until the day it is needed. */
     el.innerHTML=body+
-      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
+      '<div class="s-actions">'+
       '<button class="btn btn-sm" onclick="loadVenv(false)">Check again</button>'+
       '<button class="btn btn-sm" onclick="loadVenv(true)">Deep check \u2014 reads every file</button>'+
       '<button class="btn btn-sm'+(v.ok?'':' btn-primary')+'" onclick="repairVenv()">Repair installation</button>'+
       '</div>'+
-      (v.ok?'<p style="margin:8px 0 0;font-size:12px;color:var(--text-muted)">Nothing needs repairing right now. '+
-            'Repair reinstalls the auto-tagging packages from scratch, ignoring pip\'s cache \u2014 useful if '+
-            'tagging misbehaves for no obvious reason.</p>':'');
+      (v.ok?'<div class="s-note">Nothing needs repairing. <b>Repair</b> reinstalls the auto-tagging packages from scratch \u2014 useful if tagging misbehaves for no obvious reason. <b>Deep check</b> reads every file instead of comparing sizes.</div>':'');
 }
 
 async function repairVenv(){
@@ -386,12 +386,8 @@ function hardwareLineHtml(){
 }
 
 function healthCardHtml(){
-    return '<div class="settings-card"><h3>Installation health</h3>'+
-      '<p>Every file pip installs is recorded with its size and checksum. Holding the '+
-      'installation against that record finds a library that arrived incomplete \u2014 a '+
-      'download cut short, a disk that filled up \u2014 which otherwise shows up much later '+
-      'as auto-tagging quietly falling back to the processor.</p>'+
-      '<div id="venv-body"><span class="spinner"></span> Checking\u2026</div></div>';
+    return sCard('Installation health','Checks that the auto-tagging packages arrived complete. A download cut short or a full disk otherwise only shows much later, as tagging quietly falling back to the processor.',
+      '<div id="venv-body"><span class="spinner"></span> Checking…</div>');
 }
 
 function buildTagCard(tg){tg=tg||{};var pct=tg.total?Math.round((tg.done||0)/tg.total*100):0;
@@ -546,7 +542,23 @@ var uiCard=sCard('Appearance','',
 var _sc=setCat();
 var conOpen=localStorage.getItem('ti_con_open')!=='0';
 var conStrip='<div class="set-console'+(conOpen?'':' closed')+'" id="set-console"><div class="con-grip" id="con-grip" title="Drag to resize"></div><div class="set-console-head" onclick="toggleConsolePanel()"><span class="arr">\u25BE</span><h4>Console</h4><span style="flex:1"></span><button class="btn btn-sm" onclick="event.stopPropagation();conCopy()" style="padding:2px 8px;font-size:11px">Copy</button><label class="tb-check" style="padding:0;font-size:11px" onclick="event.stopPropagation()"><input type="checkbox" id="con-follow" checked/><span>Follow</span></label></div><div class="set-console-body"><div class="con-box nohttp" id="con-box"><span class="con-empty">Waiting for output\u2026</span></div></div></div>';
-var helpCard='<div class="settings-card"><p>How search, ratings and tagging work.</p><div class="proc-how"><div class="sec-title">Search &amp; Ratings</div><div class="proc-how-body"><div class="detail-section-title" style="margin:0 0 6px">Search</div><div style="font-size:14px;color:var(--text-secondary);line-height:1.8">Typing filters <strong>live</strong>; the whole box is <strong>one</strong> term \u2014 spaces belong to it ("shoyo hinata" also matches "shoyo_hinata"; underscores and spaces are interchangeable everywhere). <strong>Enter</strong> commits the term as a chip and clears the box; more chips combine with <strong>AND</strong>. Suggestions include <span style="color:var(--accent);font-weight:600">names</span>, <span style="color:#2fbfae;font-weight:600">tags</span>, <span style="color:#4d9fff;font-weight:600">folders</span> and metadata words \u2014 picking a folder applies the folder filter directly. \u2191/\u2193 select, Enter picks the highlighted entry.</div><div class="detail-section-title" style="margin:14px 0 6px">Ratings</div><div style="font-size:14px;color:var(--text-secondary);line-height:1.8"><strong>Rate 1–9</strong> with the number keys — in the detail view (current image) or with images selected in the gallery. Press <strong>0</strong> to clear.<br>Ratings are <strong>color-coded</strong> from <span style="color:hsl(0,65%,45%);font-weight:700">red (1)</span> through <span style="color:hsl(60,65%,45%);font-weight:700">yellow (5)</span> to <span style="color:hsl(120,65%,45%);font-weight:700">green (9)</span>, and the same color tints the <strong>thumbnail border</strong>.<br><strong>Content rating</strong> (from auto-tagging) is one of <span style="color:hsl(120,65%,45%);font-weight:700">general</span>, <span style="color:hsl(35,85%,50%);font-weight:700">sensitive</span>, <span style="color:hsl(0,65%,45%);font-weight:700">explicit</span> \u2014 an ambiguous (questionable) score is resolved to whichever of sensitive/explicit scores higher. Star ratings and content ratings appear as fixed filter rows at the top of the Names / Tags columns.</div></div></div><div class="proc-how"><div class="sec-title">How Tagging Works</div><div class="proc-how-body"><div style="font-size:14px;color:var(--text-secondary);line-height:1.8">All tags come from the <strong>ML auto-tagger</strong> \u2014 filenames are never parsed into tags.<br>The <strong>Names</strong> column simply groups <strong>filename bases</strong> on the fly ("Oliver (1)"/"Oliver (2)" \u2192 Oliver); clicking filters by that base.<br>The <strong>Tags</strong> column and the detail Tags panel hold every ML tag; <span style="color:var(--accent);font-weight:600">character tags</span> use gold text (like content ratings use colored text). Manual tags look identical to auto tags and survive re-tagging. Underscore and space are treated the same everywhere.<br><strong>+</strong> below the tags adds one (labeled suggestions skip tags the image already has); \u2715 on hover removes it from <strong>this image only</strong>. <strong>\u21bb</strong> in the panel header re-tags the image to restore removed auto-tags.</div></div></div></div>';startSettingsPoll();startConsolePoll();setTimeout(updateLjReadout,80);setTimeout(loadAutoCheck,90);return '<div style="border-bottom:1px solid var(--border);padding:0 12px;min-height:40px;display:flex;align-items:center;gap:10px"><div class="logo" onclick="navigate(\'gallery\')"><span class="logo-icon">◈</span><span class="logo-text">TrackImage</span></div><label class="switch" title="Autosync: watcher + auto-processing + auto-tagging"><input type="checkbox" '+(S.autosync?'checked':'')+' onchange="toggleAutosync()"><span class="slider"></span></label><span style="font-size:12px;font-weight:600;color:'+(S.autosync?'var(--success)':'var(--danger)')+'">Autosync</span><div class="nav-links"><button class="nav-link active" onclick="toggleSettings()">\u2699</button></div></div><div class="set-root"><div class="set-shell"><nav class="set-nav"><div class="set-nav-title">Settings</div>'+setNavHtml()+'</nav><div class="set-body" id="set-body"><div id="set-workbar"></div><div class="set-pane'+(_sc==='ui'?' active':'')+'" data-cat="ui">'+uiModeCardHtml()+uiCard+'</div><div class="set-pane'+(_sc==='proc'?' active':'')+'" data-cat="proc">'+procCard+'</div><div class="set-pane'+(_sc==='tag'?' active':'')+'" data-cat="tag">'+tagCard+'</div><div class="set-pane'+(_sc==='data'?' active':'')+'" data-cat="data">'+netCardHtml(net,dbInfo)+dbCard+'</div><div class="set-pane'+(_sc==='keys'?' active':'')+'" data-cat="keys">'+shortcutCardHtml()+'</div><div class="set-pane'+(_sc==='help'?' active':'')+'" data-cat="help">'+helpCard+'</div><div class="set-pane'+(_sc==='repair'?' active':'')+'" data-cat="repair">'+updateCardHtml()+healthCardHtml()+'</div><div class="footer">TrackImage v' + TI_VERSION + '</div></div></div>'+conStrip+'</div>';}
+var helpCard=sCard('Search','',
+   sRow('Typing filters at once','The whole box is <b>one</b> search term, spaces included — “shoyo hinata” also finds “shoyo_hinata”.','')
+  +sRow('Enter keeps the term','It becomes a chip and the box clears for the next one. Several chips must <b>all</b> match.','')
+  +sRow('Suggestions','<span style="color:var(--accent);font-weight:600">names</span>, <span style="color:#2fbfae;font-weight:600">tags</span>, <span style="color:#4d9fff;font-weight:600">folders</span> and metadata words. Picking a folder opens it. ↑ ↓ choose, Enter takes it.',''))
+ +sCard('Ratings','',
+   sRow('Keys 1 – 9 rate, 0 clears','In the full view the picture shown, in the gallery the selected ones.','')
+  +sRow('Colours','From <span style="color:hsl(0,65%,45%);font-weight:700">red (1)</span> through <span style="color:hsl(60,65%,45%);font-weight:700">yellow (5)</span> to <span style="color:hsl(120,65%,45%);font-weight:700">green (9)</span> — the tile border takes the same colour.','')
+  +sRow('Content rating','From auto-tagging: <span style="color:hsl(120,65%,45%);font-weight:700">general</span>, <span style="color:hsl(35,85%,50%);font-weight:700">sensitive</span> or <span style="color:hsl(0,65%,45%);font-weight:700">explicit</span>. Both kinds of rating are filter rows at the top of the Names and Tags columns.',''))
+ +sCard('Tags','',
+   sRow('Where tags come from','All from the auto-tagger — file names never become tags.','')
+  +sRow('Names column','Groups file names: “Oliver (1)” and “Oliver (2)” are both <b>Oliver</b>. Clicking one filters by it.','')
+  +sRow('Tags column','Every tag; <span style="color:var(--accent);font-weight:600">character tags</span> in gold. Tags you add yourself survive re-tagging.','')
+  +sRow('In the full view','<b>+</b> adds a tag, <b>✕</b> removes it from this picture only, <b>↻</b> tags the picture again and brings back removed ones.',''))
+ +sCard('Duplicates','',
+   sRow('Pixel-based','The same picture as another file — a copy, a smaller or more compressed version. <b>Max difference</b> sets how far apart they may be; real copies are usually 1–3%.','')
+  +sRow('Tag-based','Different pictures of the same subject, found by their tags.','')
+  +sRow('Smart clean','Greys out the lesser copies of a group, compared pixel by pixel. Nothing is deleted until you press <b>Delete marked</b>; <b>Ctrl+Z</b> brings it back.',''));;startSettingsPoll();startConsolePoll();setTimeout(updateLjReadout,80);setTimeout(loadAutoCheck,90);return '<div style="border-bottom:1px solid var(--border);padding:0 12px;min-height:40px;display:flex;align-items:center;gap:10px"><div class="logo" onclick="navigate(\'gallery\')"><span class="logo-icon">◈</span><span class="logo-text">TrackImage</span></div><label class="switch" title="Autosync: watcher + auto-processing + auto-tagging"><input type="checkbox" '+(S.autosync?'checked':'')+' onchange="toggleAutosync()"><span class="slider"></span></label><span style="font-size:12px;font-weight:600;color:'+(S.autosync?'var(--success)':'var(--danger)')+'">Autosync</span><div class="nav-links"><button class="nav-link active" onclick="toggleSettings()">\u2699</button></div></div><div class="set-root"><div class="set-shell"><nav class="set-nav"><div class="set-nav-title">Settings</div>'+setNavHtml()+'</nav><div class="set-body" id="set-body"><div id="set-workbar"></div><div class="set-pane'+(_sc==='ui'?' active':'')+'" data-cat="ui">'+uiModeCardHtml()+uiCard+'</div><div class="set-pane'+(_sc==='proc'?' active':'')+'" data-cat="proc">'+procCard+'</div><div class="set-pane'+(_sc==='tag'?' active':'')+'" data-cat="tag">'+tagCard+'</div><div class="set-pane'+(_sc==='data'?' active':'')+'" data-cat="data">'+netCardHtml(net,dbInfo)+dbCard+'</div><div class="set-pane'+(_sc==='keys'?' active':'')+'" data-cat="keys">'+shortcutCardHtml()+'</div><div class="set-pane'+(_sc==='help'?' active':'')+'" data-cat="help">'+helpCard+'</div><div class="set-pane'+(_sc==='repair'?' active':'')+'" data-cat="repair">'+updateCardHtml()+healthCardHtml()+'</div><div class="footer">TrackImage v' + TI_VERSION + '</div></div></div>'+conStrip+'</div>';}
 
 var _netW={remote:false,fails:0,locked:false};
 
@@ -602,28 +614,22 @@ function channelBtns(){
 
 function channelHintHtml(){
   return (_updChannel==='latest')
-    ? '<b style="color:var(--danger)">Beta:</b> these versions go out as soon as they are pushed, with nobody having used them first \u2014 expect the occasional bug, and switch back to Stable if one gets in your way. Every change, as soon as it reaches the <b>main</b> branch \u2014 the version rises with each one, so an update can arrive several times a day. Newest work first, and the first to meet whatever it got wrong.'
-    : 'Only versions that have been looked at and released. Fewer updates, each one somebody decided was ready to hand out.';
+    ? '<b style="color:var(--danger)">Beta</b> — every change as soon as it is pushed, often several a day, before anybody has used it. Switch back to Stable if one gets in your way.'
+    : 'Only released versions — fewer updates, each one declared ready.';
 }
 
 function updateCardHtml(){
-  return '<div class="settings-card"><h3>Version</h3>'
-   +'<div class="proc-row"><label>Installed</label><span class="val" style="font-family:\'Space Mono\',monospace;color:var(--accent-light)">v'+TI_VERSION+'</span></div>'
-   +'<div class="proc-row"><label>Channel</label><span id="upd-ch-row">'+channelBtns()+'</span></div>'
-   +'<div class="proc-hint" id="upd-ch-hint">'+channelHintHtml()+'</div>'
-   +'<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
-   +'<button class="btn btn-sm btn-primary" id="upd-btn" onclick="checkUpdates()">Search for updates</button>'
-   /* No link to the changelog here. It pointed at a file in the repository, so
-      it broke the moment that file moved -- and the check below already lists
-      every version between this one and the one on offer, which is the thing
-      somebody wanted the link for. */
-   +'</div>'
-   +'<div id="upd-result" style="margin-top:14px"></div>'
-   +'<div class="proc-row" style="margin-top:16px"><label>Check automatically at start</label>'
-   +'<label class="switch"><input id="upd-auto" type="checkbox" onchange="setAutoCheck(this.checked)"><span class="slider"></span></label></div>'
-   +'<div class="proc-hint">Off by default. TrackImage opens no connection of its own \u2014 with this on, it asks GitHub once per start whether <b>the channel selected above</b> carries a newer version, and nothing else. The other channel is never looked at.</div>'
-   +'<div class="proc-hint" style="margin-top:10px">An update downloads that version straight from the repository, checks the archive, copies the database — without the thumbnail cache, which is redrawn from your pictures — to <b>Trackimage_files/Userdata/Backup</b>, and then restarts into the new version \u2014 a window shows what it is doing while TrackImage is closed. Your pictures, database, settings and the tagging model stay where they are. If the swap fails at any point the previous version is put back.</div>'
-   +'</div>';
+  /* No link to the changelog here. It pointed at a file in the repository, so
+     it broke the moment that file moved -- and the check below already lists
+     every version between this one and the one on offer. */
+  return sCard('Updates','',
+     sRow('Installed version','','<span class="s-val">v'+TI_VERSION+'</span>')
+    +'<div class="s-row"><div class="s-label"><div class="s-name">Update channel</div><div class="s-hint" id="upd-ch-hint">'+channelHintHtml()+'</div></div><div class="s-ctl" id="upd-ch-row">'+channelBtns()+'</div></div>'
+    +sRow('Check automatically at start','Asks GitHub once per start whether the channel above has something newer — nothing else. Off by default.',
+          '<label class="switch"><input id="upd-auto" type="checkbox" onchange="setAutoCheck(this.checked)"><span class="slider"></span></label>')
+    +'<div class="s-actions"><button class="btn btn-sm btn-primary" id="upd-btn" onclick="checkUpdates()">Search for updates</button></div>'
+    +'<div id="upd-result" style="margin-top:12px"></div>'
+    +sMore('What happens during an update','<p>The new version is downloaded straight from the repository and checked. The database is backed up to <b>Trackimage_files/Userdata/Backup</b> (without the thumbnails, which are redrawn from your pictures), then TrackImage restarts into the new version — a window shows what it is doing meanwhile.</p><p>Your pictures, the database, your settings and the tagging model stay where they are. If anything goes wrong during the swap, the previous version is put back.</p>'));
 }
 
 async function setUpdateChannel(name){
@@ -772,28 +778,18 @@ var _rebindFor=null;
 function shortcutRowsHtml(){
   return KEY_ACTIONS.map(function(a){
     var cur=keyFor(a[0]),isDef=(cur===a[2]);
-    return '<tr><td style="padding:6px 10px 6px 0;color:var(--text-secondary)">'+esc(a[1])
-      +'<div style="font-size:11px;color:var(--text-muted)">'+esc(a[3])+'</div></td>'
-      +'<td style="padding:6px 0;white-space:nowrap">'
-      +'<button class="btn btn-sm" id="kb-'+a[0]+'" onclick="startRebind(\''+a[0]+'\')" '
-      +'style="font-family:\'Space Mono\',monospace;min-width:104px'+(isDef?'':';color:var(--accent-light)')+'">'
-      +esc(keyLabel(cur))+'</button></td></tr>';
+    return sRow(esc(a[1]),esc(a[3])+(isDef?'':' · <span style="color:var(--accent-light)">changed</span>'),
+      '<button class="btn btn-sm s-keybtn'+(isDef?'':' changed')+'" id="kb-'+a[0]+'" onclick="startRebind(\''+a[0]+'\')" title="Click, then press the new key">'+esc(keyLabel(cur))+'</button>');
   }).join('');
 }
 
 function shortcutCardHtml(){
-  return '<div class="settings-card"><h3>Keyboard</h3>'
-   +'<p>Click a key to change it, then press the combination you want. Esc cancels, Backspace puts the default back.</p>'
-   +'<table style="width:100%;border-collapse:collapse;font-size:13px" id="kb-table"><tbody>'+shortcutRowsHtml()+'</tbody></table>'
-   +'<div id="kb-note" class="proc-hint"></div>'
-   +'<div style="margin-top:10px"><button class="btn btn-sm" onclick="resetKeymap()">Reset all to defaults</button></div>'
-   +'<div class="proc-how" style="margin-top:16px"><div class="sec-title">Fixed keys</div><div class="proc-how-body">'
-   +'<table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>'
-   +KEY_FIXED.map(function(f){return '<tr><td style="padding:4px 14px 4px 0;font-family:\'Space Mono\',monospace;color:var(--accent-light);white-space:nowrap">'
-       +esc(f[0])+'</td><td style="padding:4px 0;color:var(--text-secondary)">'+esc(f[1])+'</td></tr>';}).join('')
-   +'</tbody></table>'
-   +'<div style="margin-top:10px;font-size:12px;color:var(--text-muted)">These cannot be changed. Escape is the way out of every state in the app, and the digits are ten keys that would have to move together \u2014 rebinding either is a way to lock yourself out.</div>'
-   +'</div></div></div>';
+  return sCard('Your shortcuts','Click a key, then press the combination you want. <b>Esc</b> cancels, <b>Backspace</b> puts the default back.',
+     '<div id="kb-rows">'+shortcutRowsHtml()+'</div><div id="kb-note" class="s-note"></div>'
+     +'<div class="s-actions"><button class="btn btn-sm" onclick="resetKeymap()">Reset all to defaults</button></div>')
+   +sCard('Fixed keys','',
+     KEY_FIXED.map(function(f){return sRow(esc(f[1]),'','<span class="s-key">'+esc(f[0])+'</span>');}).join('')
+     +'<div class="s-note">These cannot be changed: Escape is the way out of every state, and the digits are ten keys that would have to move together — rebinding either is a way to lock yourself out.</div>');
 }
 
 function _kbNote(msg,bad){
@@ -842,8 +838,8 @@ function _rebindCapture(e){
 }
 
 function refreshShortcutRows(){
-  var t=document.getElementById('kb-table');
-  if(t)t.querySelector('tbody').innerHTML=shortcutRowsHtml();
+  var t=document.getElementById('kb-rows');
+  if(t)t.innerHTML=shortcutRowsHtml();
 }
 
 async function saveKeymap(){
