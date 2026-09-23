@@ -5,6 +5,14 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.78 — 2026-09-23
+
+- Duplicates: a phone photo and its shared copy are found as the same picture
+- Duplicates: Max difference moves in single percent steps up to 10%
+- Smart clean works up to 5%, and keeps anything moved, retouched or animated
+- Smart clean keeps the least compressed copy, measured in the pixels, not by file size
+- Smart clean works one group at a time and shows every picture before anything goes
+
 ## v4.77 — 2026-09-22
 
 - Full view: no black flash between pictures, and the zoom stays when stepping to the next
