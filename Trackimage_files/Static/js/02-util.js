@@ -199,22 +199,15 @@ async function onMpWorkers(){var s=document.getElementById('mp-procs');if(!s)ret
 
 function uiModeCardHtml(){
     var inWin=WINDOW_MODE;
-    return '<div class="settings-card"><h3>Where TrackImage runs</h3>'+
-      '<p>Currently in <b>'+(inWin?'its own window':'a browser tab')+'</b>.'+
-      (!inWin&&SERVER_WINDOW?' The app window is open as well \u2014 this tab is a second view of the same program.':'')+'</p>'+
-      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">'+
+    return sCard('Window','TrackImage is running in <b>'+(inWin?'its own window':'a browser tab')+'</b>.'+
+        (!inWin&&SERVER_WINDOW?' The app window is open as well \u2014 this tab is a second view of the same program.':''),
+      '<div class="s-actions" style="margin-top:0">'+
       '<button class="btn btn-sm'+(inWin?'':' btn-primary')+'" onclick="setUiMode(\'window\')"'+(inWin?' disabled':'')+'>Use its own window</button>'+
-      '<button class="btn btn-sm'+(inWin?' btn-primary':'')+'" onclick="setUiMode(\'browser\')"'+(inWin?'':' disabled')+'>Use a browser tab</button>'+
-      '</div>'+
-      '<div class="proc-how"><div class="sec-title">What changes</div><div class="proc-how-body">'+
-      '<p><b>Own window</b> \u2014 dragging a file out works into any program. The window '+
-      'carries the TrackImage icon. Closing it shuts the program down.</p>'+
-      '<p><b>Browser tab</b> \u2014 dragging out hands over the real file in Chrome and Edge only; '+
-      'Firefox gets the address instead. No TrackImage icon on the window. Whichever tab you '+
-      'leave open keeps the program alive.</p>'+
-      '<p style="color:var(--text-muted)">Either way the library, the database and every setting '+
-      'stay exactly as they are \u2014 only the window around it changes.</p>'+
-      '</div></div></div>';
+      '<button class="btn btn-sm'+(inWin?' btn-primary':'')+'" onclick="setUiMode(\'browser\')"'+(inWin?'':' disabled')+'>Use a browser tab</button></div>'+
+      sMore('What is the difference?',
+        '<p><b>Own window</b> \u2014 dragging a file out works into any program, and the window carries the TrackImage icon. Closing it ends the program.</p>'+
+        '<p><b>Browser tab</b> \u2014 dragging out hands over the real file in Chrome and Edge only; Firefox gets the address instead. Whichever tab stays open keeps the program running.</p>'+
+        '<p>Either way the library, the database and every setting stay exactly as they are.</p>'));
 }
 
 async function setUiMode(mode){
