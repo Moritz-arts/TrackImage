@@ -16,7 +16,7 @@ cd "$TIDIR" || exit 1
 mkdir -p Userdata/Logs Userdata/Database
 echo ""
 echo "  ========================================"
-echo "   TrackImage v4.78 - Setup & Start"
+echo "   TrackImage v4.79 - Setup & Start"
 echo "  ========================================"
 echo ""
 

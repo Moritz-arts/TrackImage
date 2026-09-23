@@ -5,6 +5,12 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.79 — 2026-09-23
+
+- Smart clean first greys out what would go, and deletes only when confirmed
+- Settings are laid out as cards in one readable column, with the long explanations folded away
+- Settings: Keyboard, Help and Repair & Update in the same cards as the other pages
+
 ## v4.78 — 2026-09-23
 
 - Duplicates: a phone photo and its shared copy are found as the same picture
