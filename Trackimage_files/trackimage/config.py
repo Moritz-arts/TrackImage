@@ -453,7 +453,9 @@ _SKIP_DIR_NAMES = {
 }
 
 
-PICKER_TIMEOUT = 60      # v4.47: two dialogs at 300s each blocked a request
+PICKER_TIMEOUT = 180     # v4.47: two dialogs at 300s each blocked a request. Only
+                         # one runs into it now (see api_pick_folder), and a minute
+                         # was too short to find a folder on a NAS.
 
 
 _SWEEP_MAX_SHARE = 0.20

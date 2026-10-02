@@ -15,7 +15,31 @@ _PICKER_CODE_WIN = (
     "from ctypes import wintypes, byref, addressof, cast, POINTER, c_void_p\n"
     "ole32 = ctypes.WinDLL('ole32')\n"
     "user32 = ctypes.WinDLL('user32')\n"
-    "user32.GetForegroundWindow.restype = c_void_p\n"
+    "user32.CreateWindowExW.restype = c_void_p\n"
+    "user32.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR,\n"
+    "    wintypes.DWORD, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,\n"
+    "    c_void_p, c_void_p, c_void_p, c_void_p]\n"
+    "user32.MonitorFromPoint.restype = c_void_p\n"
+    "user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]\n"
+    "user32.GetMonitorInfoW.argtypes = [c_void_p, c_void_p]\n"
+    "user32.DestroyWindow.argtypes = [c_void_p]\n"
+    "class MONITORINFO(ctypes.Structure):\n"
+    "    _fields_ = [('cbSize', wintypes.DWORD), ('rcMonitor', wintypes.RECT),\n"
+    "                ('rcWork', wintypes.RECT), ('dwFlags', wintypes.DWORD)]\n"
+    # The dialog's owner is a window of its own: invisible, topmost, spanning
+    # the work area of the screen the mouse is on. The owner used to be the
+    # foreground window -- another program's -- and this process is a
+    # background one, so Windows need not bring the dialog forward: it could
+    # open behind TrackImage, unseen, and run into the timeout. A topmost
+    # owner keeps it above everything, centred where the user is looking.
+    "pt = wintypes.POINT(); user32.GetCursorPos(byref(pt))\n"
+    "mi = MONITORINFO(); mi.cbSize = ctypes.sizeof(MONITORINFO)\n"
+    "wa = (0, 0, 800, 600)\n"
+    "if user32.GetMonitorInfoW(user32.MonitorFromPoint(pt, 2), byref(mi)):\n"
+    "    wa = (mi.rcWork.left, mi.rcWork.top, mi.rcWork.right - mi.rcWork.left,\n"
+    "          mi.rcWork.bottom - mi.rcWork.top)\n"
+    "owner = user32.CreateWindowExW(0x8 | 0x80, 'STATIC', 'TrackImage', 0x80000000,\n"
+    "                               wa[0], wa[1], wa[2], wa[3], None, None, None, None)\n"
     "class GUID(ctypes.Structure):\n"
     "    _fields_ = [('a', ctypes.c_ulong), ('b', ctypes.c_ushort),\n"
     "                ('c', ctypes.c_ushort), ('d', ctypes.c_byte * 8)]\n"
@@ -42,7 +66,7 @@ _PICKER_CODE_WIN = (
     "check(call(dialog, 9, opts.value | 0x20 | 0x40), 'switching the dialog to folders')\n"
     "title = ctypes.c_wchar_p('Select image folder')\n"
     "call(dialog, 17, cast(title, c_void_p))\n"
-    "shown = call(dialog, 3, user32.GetForegroundWindow())\n"
+    "shown = call(dialog, 3, owner)\n"
     "path = ''\n"
     "if shown >= 0:\n"
     "    item = c_void_p()\n"
@@ -55,6 +79,7 @@ _PICKER_CODE_WIN = (
     "elif (shown & 0xFFFFFFFF) != 0x800704C7:\n"
     "    check(shown, 'showing the Windows folder dialog')\n"
     "call(dialog, 2)\n"
+    "if owner: user32.DestroyWindow(owner)\n"
     "sys.stdout.buffer.write(path.encode('utf-8'))\n"
 )
 
@@ -62,7 +87,7 @@ _PICKER_CODE_WIN = (
 _PICKER_CODE_TK = (
     "import sys, tkinter as tk\n"
     "from tkinter import filedialog\n"
-    "r = tk.Tk(); r.withdraw(); r.wm_attributes('-topmost', 1)\n"
+    "r = tk.Tk(); r.withdraw(); r.wm_attributes('-topmost', 1); r.lift()\n"
     "p = filedialog.askdirectory(title='Select image folder')\n"
     "r.destroy()\n"
     "sys.stdout.buffer.write((p or '').encode('utf-8'))\n"

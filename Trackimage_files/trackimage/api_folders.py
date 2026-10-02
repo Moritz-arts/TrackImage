@@ -9,10 +9,11 @@ from flask import (
 from pathlib import Path
 import os
 import shutil
+import subprocess
 import threading
 import time as _time
 from . import state
-from .config import MEDIA_EXTENSIONS, app, detect_media_type
+from .config import MEDIA_EXTENSIONS, PICKER_TIMEOUT, app, detect_media_type
 from .logging_setup import log
 from .platform_bits import _is_network_path, _move_file_safely
 from .db import _db_commit_retry, _db_write_lock, _folder_op_lock, _get_thread_db, _natural_sort_key, folder_op, get_db
@@ -28,6 +29,29 @@ from .importing import _library_row_for_path, _native_drop, _native_drop_lock, _
 from .network import _is_local_request
 
 
+def _pick_in_window():
+    """The folder dialog of the app window itself, or None when there is none.
+
+    It belongs to this process and to the window the user is looking at, so it
+    opens in front, modal to TrackImage -- which the separate dialog processes
+    below cannot promise: Windows does not let a background process bring a
+    window forward, and theirs could open behind TrackImage and time out unseen.
+    """
+    win = state._UI_WINDOW
+    if not (win is not None and state.WINDOW_MODE and request.cookies.get("ti_app") == "1"):
+        return None
+    from .config import _webview
+    kind = getattr(getattr(_webview, "FileDialog", None), "FOLDER", None)
+    if kind is None:
+        kind = getattr(_webview, "FOLDER_DIALOG", None)
+    if kind is None:
+        return None
+    got = win.create_file_dialog(kind)
+    if isinstance(got, (list, tuple)):
+        got = got[0] if got else ""
+    return got or ""
+
+
 @app.route("/api/pick-folder", methods=["POST"])
 def api_pick_folder():
     """Ask for a folder, trying every dialog this machine has.
@@ -35,6 +59,14 @@ def api_pick_folder():
     Answers {"manual": true} when none of them worked, which is the page's cue
     to offer typing the path instead rather than leaving the user stuck.
     """
+    try:
+        folder = _pick_in_window()
+        if folder is not None:
+            return jsonify({"path": folder.replace("/", os.sep)})
+    except Exception as e:
+        log(f"The app window's folder dialog failed ({type(e).__name__}: {e}) "
+            f"— trying the system dialog", "warning")
+
     attempts = []
     if os.name == "nt":
         attempts.append(("The Windows folder dialog", _PICKER_CODE_WIN, None))
@@ -47,6 +79,15 @@ def api_pick_folder():
     for label, code, env in attempts:
         try:
             code_returned, folder, err = _run_picker(code, env)
+        except subprocess.TimeoutExpired:
+            # The dialog DID open -- it waited for an answer that never came,
+            # most likely behind another window. Opening the next one would only
+            # repeat that wait (two minutes, reported as "could not start"), so
+            # the path is asked for on the page instead.
+            problems = [f"The folder dialog got no answer within {PICKER_TIMEOUT} seconds "
+                        f"— it may have opened behind another window"]
+            log(problems[0], "warning")
+            break
         except Exception as e:
             problems.append(f"{label} could not start ({type(e).__name__})")
             log(problems[-1], "warning")
