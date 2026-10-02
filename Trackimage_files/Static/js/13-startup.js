@@ -89,10 +89,11 @@ document.addEventListener('drop',function(e){
        a word -- and going back to the gallery first looked like "it only works
        when the window is active". */
     if(S.page!=='gallery')navigate('gallery');
-    window._impCopyMode=copyMode;
-    var t=_impTarget();
-    if(t)return importFilesTo(t,files);
-    _impChooseFolder(files);
+    return _impJob(files,copyMode).then(function(job){
+      var t=_impTarget();
+      if(t)return importFilesTo(t,job);
+      _impChooseFolder(job);
+    });
   }).catch(function(){
     _impVeil(false);showToast('That drop could not be read','error');
   });

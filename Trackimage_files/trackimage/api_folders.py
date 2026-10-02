@@ -382,20 +382,22 @@ def api_bulk_delete_folders():
     return jsonify({"ok": True, "deleted": deleted, "deleted_files": total_files, "errors": errors})
 
 
-@app.route("/api/import/native-drop", methods=["POST"])
-def api_import_native_drop():
-    """Import by moving the real files, when their paths are known.
+_native_claims = {}       # token -> (time, files): drops claimed, not yet imported
 
-    Answers {"ok": false, "reason": "no-paths"} whenever they are not, which is
-    the page's signal to fall back to uploading the bytes instead.
+
+@app.route("/api/import/native-claim", methods=["POST"])
+def api_import_native_claim():
+    """Take the paths pywebview reported for a drop, at the moment of the drop.
+
+    The page queues its imports now, and a queued one may run minutes later --
+    long after the single drop slot has been overwritten by the next drop. So
+    the paths are claimed straight away and kept under a token that the import
+    hands back. Answers {"ok": false, "reason": "no-paths"} whenever they are
+    not known, which is the page's signal to upload the bytes instead.
     """
     data = request.get_json(silent=True) or {}
     names = [str(n) for n in (data.get("names") or [])][:500]
-    display = (data.get("folder") or "").strip()
-    keep_original = bool(data.get("copy"))          # Ctrl held: copy, do not move
-    if not names or not display:
-        return jsonify({"ok": False, "reason": "no-paths"})
-    if not state.NATIVE_DROP_OK:
+    if not names or not state.NATIVE_DROP_OK:
         return jsonify({"ok": False, "reason": "no-paths"})
 
     # The page can get here before pywebview's handler has run, so give it a
@@ -406,23 +408,41 @@ def api_import_native_drop():
         with _native_drop_lock:
             fresh = (_time.time() - _native_drop["ts"]) < 5.0
             files = list(_native_drop["files"])
-        if fresh and len(files) == len(names) and \
-                sorted(f["name"] for f in files) == sorted(names):
-            matched = files
-            break
+            if fresh and len(files) == len(names) and \
+                    sorted(f["name"] for f in files) == sorted(names):
+                matched = files
+                _native_drop["ts"] = 0.0            # one drop is used once
+                _native_drop["files"] = []
+                break
         _time.sleep(0.05)
     if matched is None:
         return jsonify({"ok": False, "reason": "no-paths"})
-    with _native_drop_lock:                 # one drop is used once
-        _native_drop["ts"] = 0.0
-        _native_drop["files"] = []
+    token = os.urandom(8).hex()
+    with _native_drop_lock:
+        now = _time.time()
+        for k in [k for k, v in _native_claims.items() if now - v[0] > 3600]:
+            del _native_claims[k]
+        _native_claims[token] = (now, matched)
+    return jsonify({"ok": True, "token": token})
+
+
+@app.route("/api/import/native-drop", methods=["POST"])
+def api_import_native_drop():
+    """Import by moving the real files claimed for a drop (see above)."""
+    data = request.get_json(silent=True) or {}
+    display = (data.get("folder") or "").strip()
+    keep_original = bool(data.get("copy"))          # Ctrl held: copy, do not move
+    with _native_drop_lock:
+        claim = _native_claims.pop(str(data.get("token") or ""), None)
+    if not claim or not display:
+        return jsonify({"ok": False, "reason": "no-paths"})
 
     target = resolve_display_folder(display)
     if not target or not os.path.isdir(target):
         return jsonify({"error": f"Folder not found: {display}"}), 404
     if not os.access(target, os.W_OK):
         return jsonify({"error": f"No permission to write into {display}"}), 403
-    return jsonify(_import_local_files(get_db(), display, target, matched, keep_original))
+    return jsonify(_import_local_files(get_db(), display, target, claim[1], keep_original))
 
 
 def _import_local_files(db, display, target, matched, keep_original):
@@ -498,8 +518,11 @@ def _import_local_files(db, display, target, matched, keep_original):
             skipped.append({"name": raw_name, "why": f"could not be recorded ({type(e).__name__})"})
 
     _db_commit_retry(db)
+    # PASSIVE, not TRUNCATE: TRUNCATE waits for every reader to let go of the
+    # WAL, and while the workers are busy there always is one -- so a drop sat
+    # behind the busy timeout, veil up, for as long as TrackImage was working.
     try:
-        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        db.execute("PRAGMA wal_checkpoint(PASSIVE)")
     except Exception:
         pass
     dupes = _report_import_dupes(db, new_ids, display)
@@ -668,7 +691,7 @@ def api_import_files():
 
     _db_commit_retry(db)
     try:
-        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        db.execute("PRAGMA wal_checkpoint(PASSIVE)")      # see _import_local_files
     except Exception:
         pass
 

@@ -134,17 +134,20 @@ function _impDropGuardTarget(e){
   return !!(t&&t.closest&&t.closest('input,textarea,[contenteditable="true"]'));
 }
 
-async function _impChooseFolder(files){
+async function _impChooseFolder(job){
+  /* Every drop waiting for a folder is kept -- a second one while this list is
+     open used to replace the first, whose files then went nowhere. */
+  var jobs=window._impPending=(window._impPending||[]);jobs.push(job);
+  var n=jobs.reduce(function(a,j){return a+j.files.length;},0);
   _impVeil(true,'<div class="iv-title">Where should these go?</div>'
-    +'<div class="iv-note">Loading folders\u2026</div>');
+    +'<div class="iv-note">Loading folders…</div>');
   var d=null;
   try{d=await api('/api/import-targets');}catch(_e){}
   var list=(d&&d.folders)||[];
-  if(!list.length){_impVeil(false);showToast('No folders are linked yet','error');return;}
-  window._impPending=files;
+  if(!list.length){window._impPending=null;_impVeil(false);showToast('No folders are linked yet','error');return;}
   var h='<div class="iv-title">Where should these go?</div>'
-    +'<div class="iv-note">'+files.length+' file'+(files.length!==1?'s':'')
-    +' \u2014 pick the folder they belong in.</div><div class="iv-pick">';
+    +'<div class="iv-note">'+n+' file'+(n!==1?'s':'')
+    +' — pick the folder they belong in.</div><div class="iv-pick">';
   list.slice(0,400).forEach(function(f){
     h+='<button onclick="_impPick('+JSON.stringify(f.display).replace(/"/g,'&quot;')+')">'
       +esc(f.display)+'</button>';
@@ -154,47 +157,88 @@ async function _impChooseFolder(files){
 }
 
 function _impPick(display){
-  var files=window._impPending||[];window._impPending=null;
-  importFilesTo(display,files);
+  var jobs=window._impPending||[];window._impPending=null;
+  jobs.forEach(function(j){importFilesTo(display,j);});
 }
 
 function _impCancel(){window._impPending=null;_impVeil(false);}
 
-async function importFilesTo(display,files){
-  if(!files||!files.length){_impVeil(false);return;}
-  var copyMode=!!window._impCopyMode;window._impCopyMode=false;
-  _impVeil(true,'<div class="iv-title">'+(NATIVE_DROP&&!copyMode?'Moving ':'Adding ')+files.length+' file'
-    +(files.length!==1?'s':'')+'\u2026</div><div class="iv-where">'+esc(display)+'</div>'
-    +'<div class="iv-note"><div class="spinner"></div></div>');
-  /* v4.41: ask Python first. It saw the same drop from the Windows side and
-     knows where the files actually live, which is the only way to move rather
-     than copy them -- the drop event itself never carries a path. If it has no
-     answer (a browser tab, a phone, an older pywebview) the upload below runs
-     exactly as it always has. */
-  if(NATIVE_DROP){
+function _impJob(files,copy){
+  /* What a drop becomes: its files, Ctrl at the moment of the drop, and a token
+     for the paths Python saw. The token is claimed NOW: a queued job may run
+     minutes later, and by then the next drop has long taken Python's one slot
+     -- the files would be copied instead of moved, without a word. */
+  var job={files:files,copy:copy,token:''};
+  if(!NATIVE_DROP)return Promise.resolve(job);
+  return api('/api/import/native-claim',{method:'POST',body:JSON.stringify({
+      names:files.map(function(f){return f.name;})})})
+    .then(function(r){if(r&&r.ok)job.token=r.token;return job;})
+    .catch(function(){return job;});
+}
+
+/* Drops are queued and run one after another, in the background. An import
+   used to hold a full-screen veil until the server answered, and while
+   TrackImage was busy that answer could take long enough to look like the drop
+   had failed -- so dropping only "worked" while nothing else was running. The
+   veil goes now, the header spinner says what is happening, and a drop made
+   meanwhile simply waits its turn. */
+var _impQueue=[],_impBusy=false;
+
+function importFilesTo(display,job){
+  _impVeil(false);
+  if(!job||!job.files||!job.files.length)return;
+  job.display=display;
+  _impQueue.push(job);
+  if(_impBusy){
+    var n=job.files.length;
+    showToast(n+' file'+(n!==1?'s':'')+' queued — added once the current import is done','success');
+  }
+  _impPump();
+}
+
+async function _impPump(){
+  if(_impBusy)return;
+  _impBusy=true;updateWorkSpinner();
+  try{
+    while(_impQueue.length){
+      var job=_impQueue.shift();
+      try{await _impRun(job);}
+      catch(e){showToast('Import failed — '+e,'error');}
+    }
+  }finally{_impBusy=false;updateWorkSpinner();}
+}
+
+function impLabel(){
+  if(!_impBusy)return '';
+  return 'Adding dropped files'+(_impQueue.length?' — '+_impQueue.length+' more waiting':'…');
+}
+
+async function _impRun(job){
+  var files=job.files,display=job.display,copyMode=!!job.copy;
+  /* v4.41: Python first. It saw the same drop from the Windows side and knows
+     where the files actually live, which is the only way to move rather than
+     copy them -- the drop event itself never carries a path. Without a token
+     (a browser tab, a phone, an older pywebview) the upload below runs exactly
+     as it always has. */
+  if(job.token){
     var nr=null;
     try{
       nr=await api('/api/import/native-drop',{method:'POST',body:JSON.stringify({
-        names:files.map(function(f){return f.name;}),folder:display,copy:copyMode})});
+        token:job.token,folder:display,copy:copyMode})});
     }catch(_e){nr=null;}
-    if(nr&&nr.ok){_impFinish(nr,display,copyMode?'copied':'moved');return;}
-    if(nr&&nr.error){_impVeil(false);showToast(nr.error,'error');return;}
+    if(nr&&nr.ok)return _impFinish(nr,display,copyMode?'copied':'moved');
+    if(nr&&nr.error){showToast(nr.error,'error');return;}
   }
   var fd=new FormData();
   fd.append('folder',display);
   files.forEach(function(f){fd.append('files',f,f.name);});
-  var r=null;
-  try{
-    var resp=await fetch('/api/import-files',{method:'POST',body:fd});
-    r=await resp.json();
-  }catch(e){
-    _impVeil(false);showToast('Import failed \u2014 '+e,'error');return;
-  }
-  _impFinish(r,display,'copied');
+  var resp=await fetch('/api/import-files',{method:'POST',body:fd});
+  return _impFinish(await resp.json(),display,'copied');
 }
 
 async function _impFinish(r,display,verb){
-  _impVeil(false);
+  /* The veil is not touched here: by the time an import finishes it may be
+     showing the next drag. */
   if(r.error){showToast(r.error,'error');return;}
   var added=r.added||[],n=added.length,sk=(r.skipped||[]).length;
   var back=added.filter(function(a){return a.from_library;}).length;
@@ -226,7 +270,7 @@ async function _impFinish(r,display,verb){
         +(r.duplicates.length>1?(' (+'+(r.duplicates.length-1)+' more)'):''),'error');
     },1800);
   }
-  if(n){await loadImagesReset();render();}
+  if(n&&S.page!=='detail'){await loadImagesReset();render();}
 }
 
 function nativeDragOn(){return false;}

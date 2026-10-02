@@ -202,7 +202,7 @@ function workBusy(){
     return !!(updBusy()||p.running||((p.pending||0)>0)||((p.active||0)>0)
         ||(p.scan&&p.scan.active)||(p.unlink&&p.unlink.active)
         ||(p.thumbs&&p.thumbs.active)||(p.pairs&&p.pairs.active)
-        ||t.running||((t.active||0)>0)||dl.active);
+        ||t.running||((t.active||0)>0)||dl.active||_impBusy);
 }
 
 function updateWorkSpinner(){
@@ -219,6 +219,7 @@ var UPD_WORDS={downloading:'Downloading the new version',verifying:'Checking the
 function workLabel(){
     var p=S._proc||{},t=S._tag||{},dl=(t.model_download||{});
     if(updBusy())return (UPD_WORDS[S._updPhase]||'Updating')+'\u2026';
+    if(_impBusy)return impLabel();
     if(p.unlink&&p.unlink.active)return 'Unlinking a folder\u2026';
     if(p.scan&&p.scan.active)return 'Scanning a folder\u2026';
     if(dl.active)return 'Downloading the auto-tagging model\u2026';
