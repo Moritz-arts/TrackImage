@@ -9,7 +9,7 @@ import time as _time
 from . import state
 from .config import APP_DIR, DB_DIR, FileSystemEventHandler, HAS_WATCHDOG, LOG_DIR, MEDIA_EXTENSIONS, Observer, STATIC_DIR, VIDEO_EXTENSIONS, _SKIP_DIR_NAMES, _SWEEP_MAX_SHARE, app, detect_media_type, USERDATA_DIR
 from .logging_setup import log
-from .db import _db_commit_retry, _db_write_lock, _get_thread_db, get_db
+from .db import _commit_if_held, _db_commit_retry, _db_write_lock, _get_thread_db, get_db
 from .events import sse_notify
 from .media import get_file_date
 from .processing import _proc, _proc_ensure_running
@@ -80,7 +80,9 @@ def _sync_paths(paths):
         ignore_words = {r["word"].lower() for r in db.execute("SELECT word FROM ignore_words").fetchall()}
         new_count = removed_count = modified_count = 0
         seen = set()
+        held = [0.0]
         for raw in paths:
+            _commit_if_held(db, held)
             filepath = os.path.normpath(raw)
             if filepath in seen: continue
             seen.add(filepath)
@@ -153,6 +155,7 @@ def _full_sync():
         found_paths = set()
         ignore_words = {r["word"].lower() for r in db.execute("SELECT word FROM ignore_words").fetchall()}
         new_count, removed_count, modified_count = 0, 0, 0
+        held = [0.0]
 
         for sf in scan_folders:
             root = Path(sf["path"])
@@ -169,6 +172,7 @@ def _full_sync():
                     ext = Path(filename).suffix.lower()
                     if ext not in MEDIA_EXTENSIONS:
                         continue
+                    _commit_if_held(db, held)
                     filepath = os.path.join(dirpath, filename)
                     found_paths.add(filepath)
                     if filepath in existing:
@@ -446,6 +450,8 @@ def _scan_all_folders_impl():
     # walking the folders themselves.
     SCAN_COMMIT = 500
     _since = [0]
+    _held = [0.0]             # see _commit_if_held: the count alone let one write
+                              # hold the lock across thousands of unchanged files
     _complete = True          # every configured folder was read to the end
 
     def _save(force=False):
@@ -490,6 +496,7 @@ def _scan_all_folders_impl():
             for filename in sorted(filenames):
                 ext = Path(filename).suffix.lower()
                 if ext not in MEDIA_EXTENSIONS: continue
+                _commit_if_held(db, _held)
                 filepath = os.path.join(dirpath, filename)
                 all_found.add(filepath)
                 processed += 1

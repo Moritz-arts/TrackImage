@@ -403,6 +403,25 @@ def _db_commit_retry(db, attempts=6):
     return False
 
 
+def _commit_if_held(db, opened, hold=1.0):
+    """Commit a walk's open write once it has been held for `hold` seconds.
+
+    A scan wrote one row and then went on stat-ing every file it already knew --
+    on a NAS for minutes -- with SQLite's write lock held the whole time. Every
+    other writer queued behind it, and a file dropped in meanwhile failed with
+    "database is locked" after fifteen seconds. Call this once per file;
+    `opened` is a one-element list the caller keeps."""
+    if not db.in_transaction:
+        opened[0] = 0.0
+        return
+    now = _time.monotonic()
+    if not opened[0]:
+        opened[0] = now
+    elif now - opened[0] >= hold:
+        _db_commit_retry(db)
+        opened[0] = 0.0
+
+
 _vacuum = {"running": False, "before": 0, "after": 0, "error": "", "at": 0.0}
 
 
