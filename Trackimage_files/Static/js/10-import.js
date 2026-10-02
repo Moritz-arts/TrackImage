@@ -25,15 +25,31 @@ function _impFilesInEvent(e){
 }
 
 function _impMaybeFiles(e){
-  /* A drag whose types say nothing is taken seriously anyway. Some sources --
+  /* A link is taken too. Firefox hands a picture over as a link alone when
+     TrackImage is not the active window, and a drag this page does not accept
+     falls to the webview, which opens a link in a new window -- pywebview
+     passes that to the default browser, so Firefox opened the picture instead
+     of TrackImage adding it. The link is downloaded now (see _impLinkOf).
+
+     A drag whose types say nothing is taken seriously anyway. Some sources --
      Outlook, a few file managers, and the app window itself when a drag enters
      it before it has come to the front -- hand over an empty type list until
      the drop actually happens, and refusing those means the drop never
      arrives: the browser only delivers one where dragover said yes. Nothing is
      lost by saying yes early; a drop that turns out to carry nothing usable is
      answered with a message a moment later. */
-  return _impFilesInEvent(e)||!_impTypes(e).length;
+  return _impFilesInEvent(e)||_impLinkInEvent(e)||!_impTypes(e).length;
 }
+
+/* A drag that started on this page -- selected text, a link in the console --
+   is not an import. It matters now that links and HTML are taken: without
+   this, dragging a selection across the gallery raised the import veil. The
+   next click clears it too, so a dragend that never came cannot leave every
+   later drop refused. */
+var _impFromPage=false;
+document.addEventListener('dragstart',function(){_impFromPage=true;},true);
+document.addEventListener('dragend',function(){_impFromPage=false;},true);
+document.addEventListener('mousedown',function(){_impFromPage=false;},true);
 
 function _impRefuse(e){
   /* Why this drag is none of the importer's business, or '' when it is.
@@ -42,6 +58,7 @@ function _impRefuse(e){
      only one of them knows about does not refuse the drop -- it makes the drop
      vanish, which is exactly what "it works sometimes" feels like. */
   if(S.dragIds&&S.dragIds.length)return 'own';         // a drag inside the app
+  if(_impFromPage)return 'own';
   /* Files this window handed to Windows a moment ago, being dragged back over
      it. Only for a moment: after that an external drop must be accepted again,
      and whether they really are ours is settled by name at the drop itself. */
@@ -56,7 +73,34 @@ function _impRefuse(e){
 
 function _impLinkInEvent(e){
   var t=_impTypes(e);
-  return t.indexOf('text/uri-list')>=0||t.indexOf('text/x-moz-url')>=0;
+  return t.indexOf('text/uri-list')>=0||t.indexOf('text/x-moz-url')>=0||t.indexOf('text/html')>=0;
+}
+
+function _impLinkOf(dt){
+  /* The picture a link drop is about. The <img> first: a picture inside a link
+     carries the LINK in uri-list -- a page -- and its own address only there.
+     Read during the drop event; afterwards the data is gone. */
+  var h='',u='';
+  try{h=dt.getData('text/html')||'';}catch(_e){}
+  if(h){
+    try{
+      var im=new DOMParser().parseFromString(h,'text/html').querySelector('img[src]');
+      var src=im?im.getAttribute('src'):'';
+      if(/^(https?:|data:image\/|data:video\/)/i.test(src))return src;
+    }catch(_e){}
+  }
+  try{u=dt.getData('text/uri-list')||'';}catch(_e){}
+  if(!u){try{u=(dt.getData('text/x-moz-url')||'').split('\n')[0];}catch(_e){}}
+  return (u.split(/\r?\n/).filter(function(l){return l&&l.charAt(0)!=='#';})[0]||'').trim();
+}
+
+function _impDataFile(uri){
+  /* A picture whose address is the picture itself (data:image/...) needs no
+     download; it becomes a file here and goes the ordinary way. */
+  return fetch(uri).then(function(r){return r.blob();}).then(function(b){
+    var ext=(b.type.split('/')[1]||'bin').replace('jpeg','jpg').replace(/[^a-z0-9]/gi,'');
+    return [new File([b],'dropped.'+ext,{type:b.type})];
+  });
 }
 
 var _impSeenAt=0,_impWatch=null;
@@ -138,7 +182,7 @@ async function _impChooseFolder(job){
   /* Every drop waiting for a folder is kept -- a second one while this list is
      open used to replace the first, whose files then went nowhere. */
   var jobs=window._impPending=(window._impPending||[]);jobs.push(job);
-  var n=jobs.reduce(function(a,j){return a+j.files.length;},0);
+  var n=jobs.reduce(function(a,j){return a+_impCount(j);},0);
   _impVeil(true,'<div class="iv-title">Where should these go?</div>'
     +'<div class="iv-note">Loading folders…</div>');
   var d=null;
@@ -163,6 +207,8 @@ function _impPick(display){
 
 function _impCancel(){window._impPending=null;_impVeil(false);}
 
+function _impCount(job){return job.url?1:job.files.length;}
+
 function _impJob(files,copy){
   /* What a drop becomes: its files, Ctrl at the moment of the drop, and a token
      for the paths Python saw. The token is claimed NOW: a queued job may run
@@ -186,11 +232,11 @@ var _impQueue=[],_impBusy=false;
 
 function importFilesTo(display,job){
   _impVeil(false);
-  if(!job||!job.files||!job.files.length)return;
+  if(!job||!(job.url||(job.files&&job.files.length)))return;
   job.display=display;
   _impQueue.push(job);
   if(_impBusy){
-    var n=job.files.length;
+    var n=_impCount(job);
     showToast(n+' file'+(n!==1?'s':'')+' queued — added once the current import is done','success');
   }
   _impPump();
@@ -215,6 +261,10 @@ function impLabel(){
 
 async function _impRun(job){
   var files=job.files,display=job.display,copyMode=!!job.copy;
+  if(job.url){
+    var ur=await api('/api/import-url',{method:'POST',body:JSON.stringify({url:job.url,folder:display})});
+    return _impFinish(ur,display,'downloaded');
+  }
   /* v4.41: Python first. It saw the same drop from the Windows side and knows
      where the files actually live, which is the only way to move rather than
      copy them -- the drop event itself never carries a path. Without a token

@@ -12,6 +12,8 @@ import shutil
 import subprocess
 import threading
 import time as _time
+import urllib.parse
+import urllib.request
 from . import state
 from .config import MEDIA_EXTENSIONS, PICKER_TIMEOUT, app, detect_media_type
 from .logging_setup import log
@@ -678,36 +680,22 @@ def api_import_undo_move():
     return jsonify({"ok": True, "restored": back, "failed": failed})
 
 
-@app.route("/api/import-files", methods=["POST"])
-def api_import_files():
-    """v4.39: drop files onto the gallery and they land in the library.
+def _import_uploads(display, items):
+    """Write files that arrive as bytes into a library folder and record them.
 
-    The file is written into the folder that is open on screen (T1), so where it
-    appears in TrackImage and where it sits on disk are the same place. Nothing
-    is overwritten (N1) and nothing is moved out from under the user -- a file
-    that already lives on this machine is copied, and the original stays where
-    it was (V1). From there it goes through the same pipeline as anything the
-    scan finds: metadata, thumbnail, pHash, and auto-tagging if it is switched
-    on. Once the pHash is known, matches already in the library are reported
-    (D1) -- reported, never acted on.
-    """
-    display = (request.form.get("folder") or "").strip()
-    if not display:
-        return jsonify({"error": "No target folder given"}), 400
+    items are (name, save) pairs: the name the file came with, and a function
+    that writes it to the path it is given. Shared by a dropped file and a
+    dropped link, so both arrive the same way. Returns (answer, status)."""
     target = resolve_display_folder(display)
     if not target or not os.path.isdir(target):
-        return jsonify({"error": f"Folder not found: {display}"}), 404
+        return {"error": f"Folder not found: {display}"}, 404
     if not os.access(target, os.W_OK):
-        return jsonify({"error": f"No permission to write into {display}"}), 403
-
-    files = request.files.getlist("files")
-    if not files:
-        return jsonify({"error": "Nothing to import"}), 400
+        return {"error": f"No permission to write into {display}"}, 403
 
     db = get_db()
     added, skipped, new_ids = [], [], []
-    for f in files:
-        raw_name = _safe_dropped_name(f.filename)
+    for raw, save in items:
+        raw_name = _safe_dropped_name(raw)
         ext = os.path.splitext(raw_name)[1].lower()
         if ext not in MEDIA_EXTENSIONS:
             skipped.append({"name": raw_name, "why": "not an image or video TrackImage handles"})
@@ -715,9 +703,13 @@ def api_import_files():
         name = _free_filename(target, raw_name)
         dest = os.path.join(target, name)
         try:
-            f.save(dest)
+            save(dest)
         except Exception as e:
-            skipped.append({"name": raw_name, "why": f"could not be written ({type(e).__name__})"})
+            try:
+                os.remove(dest)               # never leave half a file behind
+            except OSError:
+                pass
+            skipped.append({"name": raw_name, "why": f"could not be written ({e})"})
             continue
         try:
             cur = db.execute(
@@ -751,8 +743,97 @@ def api_import_files():
     if new_ids and _proc["auto"]:
         _proc_ensure_running(reset_progress=True)
 
-    return jsonify({"ok": True, "added": added, "skipped": skipped,
-                    "duplicates": dupes, "folder": display})
+    return {"ok": True, "added": added, "skipped": skipped,
+            "duplicates": dupes, "folder": display}, 200
+
+
+@app.route("/api/import-files", methods=["POST"])
+def api_import_files():
+    """v4.39: drop files onto the gallery and they land in the library.
+
+    The file is written into the folder that is open on screen (T1), so where it
+    appears in TrackImage and where it sits on disk are the same place. Nothing
+    is overwritten (N1) and nothing is moved out from under the user -- a file
+    that already lives on this machine is copied, and the original stays where
+    it was (V1). From there it goes through the same pipeline as anything the
+    scan finds: metadata, thumbnail, pHash, and auto-tagging if it is switched
+    on. Once the pHash is known, matches already in the library are reported
+    (D1) -- reported, never acted on.
+    """
+    display = (request.form.get("folder") or "").strip()
+    if not display:
+        return jsonify({"error": "No target folder given"}), 400
+    files = request.files.getlist("files")
+    if not files:
+        return jsonify({"error": "Nothing to import"}), 400
+    body, code = _import_uploads(display, [(f.filename, f.save) for f in files])
+    return jsonify(body), code
+
+
+_URL_MAX = 1 << 30            # a dropped link is a picture or a video, not a disk image
+
+_EXT_FOR_TYPE = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png",
+                 "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif",
+                 "image/bmp": ".bmp", "image/tiff": ".tif", "image/heic": ".heic",
+                 "image/heif": ".heif", "video/mp4": ".mp4", "video/webm": ".webm",
+                 "video/quicktime": ".mov", "video/x-matroska": ".mkv"}
+
+
+@app.route("/api/import-url", methods=["POST"])
+def api_import_url():
+    """A picture dragged in as a link -- downloaded and added like a file.
+
+    Firefox hands a picture over as a link alone when TrackImage is not the
+    active window, without the file. The page did not take such a drop, so the
+    webview did what it does with a link: open it in a new window, which
+    pywebview passes to the default browser -- Firefox opened the picture
+    instead of TrackImage adding it. Now the link is fetched here.
+    """
+    data = request.get_json(silent=True) or {}
+    url = str(data.get("url") or "").strip()
+    display = str(data.get("folder") or "").strip()
+    if not display:
+        return jsonify({"error": "No target folder given"}), 400
+    if urllib.parse.urlsplit(url).scheme.lower() not in ("http", "https"):
+        return jsonify({"error": "That drop carried no picture TrackImage can fetch"}), 400
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (compatible; TrackImage)", "Accept": "image/*,video/*,*/*;q=0.5"})
+    try:
+        resp = urllib.request.urlopen(req, timeout=30)
+    except Exception as e:
+        return jsonify({"error": f"The picture could not be downloaded ({e})"}), 502
+    with resp:
+        ctype = (resp.headers.get_content_type() or "").lower()
+        if ctype.startswith("text/") or ctype.endswith("json"):
+            return jsonify({"error": "That link leads to a page, not a picture \u2014 "
+                                     "open the picture itself and drag that"}), 415
+        name = resp.headers.get_filename() or urllib.parse.unquote(
+            os.path.basename(urllib.parse.urlsplit(resp.geturl()).path))
+        stem, ext = os.path.splitext(_safe_dropped_name(name))
+        if ext.lower() not in MEDIA_EXTENSIONS:
+            # A CDN address rarely ends in the file's type ("…/XYZ?format=jpg"),
+            # so the type the server named decides.
+            ext = _EXT_FOR_TYPE.get(ctype, "")
+            if not ext:
+                return jsonify({"error": f"That link is not a picture TrackImage handles "
+                                         f"({ctype or 'unknown type'})"}), 415
+
+        def save(dest):
+            got = 0
+            with open(dest, "wb") as fh:
+                while True:
+                    chunk = resp.read(1 << 20)
+                    if not chunk:
+                        break
+                    got += len(chunk)
+                    if got > _URL_MAX:
+                        raise ValueError("larger than 1 GB")
+                    fh.write(chunk)
+            if not got:
+                raise ValueError("the server sent nothing")
+
+        body, code = _import_uploads(display, [(stem + ext, save)])
+    return jsonify(body), code
 
 
 @app.route("/api/import-targets")

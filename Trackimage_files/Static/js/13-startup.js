@@ -62,10 +62,13 @@ document.addEventListener('dragleave',function(e){
 });
 
 document.addEventListener('drop',function(e){
+  if(_impRefuse(e)){_impReset();return;}
+  /* Taken even when nothing in it is usable: whatever the page leaves alone,
+     the webview handles itself -- a link it opens in a new window. */
+  e.preventDefault();
   var hasFiles=_impFilesInEvent(e),hasLink=_impLinkInEvent(e);
   if(!hasFiles&&!hasLink){_impReset();return;}
-  if(_impRefuse(e)){_impReset();return;}
-  e.preventDefault();
+  var link=hasLink?_impLinkOf(e.dataTransfer):'';
   _impDepth=0;
   if(_impWatch){clearInterval(_impWatch);_impWatch=null;}
   /* v4.41: Ctrl held at the moment of the drop means COPY, the way it does
@@ -73,11 +76,19 @@ document.addEventListener('drop',function(e){
      the event is gone by the time the promised files arrive. */
   var copyMode=!!(e.ctrlKey||e.metaKey);
   _impCollectFiles(e.dataTransfer).then(function(files){
+    if(!files.length&&/^data:/i.test(link))return _impDataFile(link);
+    return files;
+  }).then(function(files){
     if(!files.length){
-      _impVeil(false);
-      showToast('That picture came over as a link, not a file — save it first, '
-        +'then drag it in','error');
-      return;
+      if(!/^https?:/i.test(link)){
+        _impVeil(false);
+        showToast('That drop carried no picture TrackImage can use','error');
+        return;
+      }
+      if(S.page!=='gallery')navigate('gallery');
+      var lj={url:link,files:[],copy:false},lt=_impTarget();
+      if(lt)return importFilesTo(lt,lj);
+      return _impChooseFolder(lj);
     }
     /* v4.40: these may be OUR files coming home -- a drag that was handed to
        Windows and then let go over TrackImage's own window. Importing them
