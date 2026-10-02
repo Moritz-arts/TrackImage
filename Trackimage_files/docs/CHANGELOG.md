@@ -5,6 +5,12 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.80 — 2026-10-02
+
+- Dropped files are queued and added while TrackImage is busy
+- Linking a folder: the dialog opens in front, and a timeout no longer opens a second one
+- Pictures dragged from a browser are added even when TrackImage is not the active window
+
 ## v4.79 — 2026-09-23
 
 - Smart clean first greys out what would go, and deletes only when confirmed
