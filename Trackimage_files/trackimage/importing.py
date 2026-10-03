@@ -3,17 +3,20 @@
 Layer 19 of 27 -- see trackimage/__init__.py for the order these load in.
 """
 from queue import Queue, Empty
+import json
 import os
 import shutil
 import subprocess
 import sys
 import threading
 import time as _time
+import urllib.parse
+import urllib.request
 from . import state
-from .config import Image
+from .config import Image, MEDIA_EXTENSIONS
 from .logging_setup import log
 from .platform_bits import _no_window
-from .db import get_db
+from .db import _get_thread_db, get_db
 from .events import sse_notify
 from .hashing import _phash16, _sim_pct
 from .duplicates import _popcount_func
@@ -78,6 +81,22 @@ _native_drop_lock = threading.Lock()
 state.NATIVE_DROP_OK = False          # set once the DOM hook is actually bound
 
 
+_native_claims = {}       # token -> (time, files): drops claimed, not yet imported
+
+
+def _claim_native(files):
+    """Keep the real paths of a drop under a token the page hands back when it
+    imports -- which, queued, may be minutes later. Call with _native_drop_lock
+    NOT held."""
+    token = os.urandom(8).hex()
+    with _native_drop_lock:
+        now = _time.time()
+        for k in [k for k, v in _native_claims.items() if now - v[0] > 3600]:
+            del _native_claims[k]
+        _native_claims[token] = (now, list(files))
+    return token
+
+
 def _record_native_drop(event):
     """pywebview's drop handler. Runs on the GUI side, off the request path --
     it only writes down what was dropped and lets the page come and ask."""
@@ -118,6 +137,130 @@ def _bind_native_drop(window):
     except Exception as e:
         log(f"Could not listen for dropped paths ({type(e).__name__}) — dropped "
             f"files will be copied instead of moved.", "warning")
+
+
+_REAL_BROWSER_OPEN = None
+_routed_recently = {}         # uri -> time, so one drop is never imported twice
+_routed_lock = threading.Lock()
+
+
+def _own_or_intended(url):
+    """True only for an address TrackImage opens on purpose: its own start page
+    (opening the browser, switching modes) and the project's pages on GitHub
+    (the "Open on GitHub" link in Settings). Everything else that wants a
+    browser while the window is open is a drop -- including a picture on
+    another local port or a TrackImage /file/ address, which the import itself
+    recognises. Anything that cannot be read fails closed."""
+    try:
+        p = urllib.parse.urlsplit(str(url))
+        host, port = (p.hostname or "").lower(), p.port
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    if port == 5001 and p.path in ("", "/"):
+        return True
+    if host == "github.com":
+        from .updater import GITHUB_OWNER, GITHUB_REPO   # a layer above: at run time
+        return p.path.lower().startswith(("/%s/%s/" % (GITHUB_OWNER, GITHUB_REPO)).lower())
+    return False
+
+
+def _guard_browser_opens():
+    """A drop can never open the default browser.
+
+    When a drop is not taken by the page, Chromium opens what it carries as a
+    new tab; WebView2 reports that as a new-window request and pywebview hands
+    it to webbrowser.open -- which is how pictures dragged out of Firefox ended
+    up in a new Firefox window instead of TrackImage. The page cannot rule it
+    out: if the drop is released before the page's "I take this" has reached
+    the browser process, Chromium takes the default action regardless, and a
+    window that is not in front -- Firefox writing the picture to a temp file
+    while it enters -- makes that race easy to lose.
+
+    Every pywebview version and backend opens those through webbrowser.open,
+    looked up at call time, so that one function is wrapped: while the app
+    window is open, an address that is not TrackImage's own goes to the import
+    queue instead. It runs on the GUI thread, so it only starts a thread."""
+    global _REAL_BROWSER_OPEN
+    import webbrowser
+    if _REAL_BROWSER_OPEN is not None:
+        return
+    _REAL_BROWSER_OPEN = real = webbrowser.open
+
+    def _open(url, new=0, autoraise=True):
+        try:
+            if state._UI_WINDOW is not None and not _own_or_intended(url):
+                threading.Thread(target=_route_dropped_uri, args=(str(url),),
+                                 daemon=True, name="dropped-uri").start()
+                return True
+        except Exception:
+            pass
+        return real(url, new, autoraise)
+
+    webbrowser.open = _open
+    webbrowser.open_new = lambda url: _open(url, 1)
+    webbrowser.open_new_tab = lambda url: _open(url, 2)
+
+
+def _route_dropped_uri(url):
+    """Turn what a drop would have opened into an import the page queues. Every
+    drop gets an answer on screen: one that silently did nothing would look
+    exactly like the drop that never arrived."""
+    now = _time.time()
+    with _routed_lock:
+        for k in [k for k, t in _routed_recently.items() if now - t > 3]:
+            del _routed_recently[k]
+        if url in _routed_recently:
+            return
+        _routed_recently[url] = now
+    try:
+        payload = _dropped_uri_payload(url)
+    except Exception as e:
+        log(f"Could not read a dropped item ({type(e).__name__}: {e})", "warning")
+        payload = {"error": "That drop could not be added"}
+    log(f"A drop the page did not take was caught before it reached the browser: "
+        f"{url[:120]}", "info")
+    win = state._UI_WINDOW
+    js = "window.tiExternalDrop&&tiExternalDrop(%s)" % json.dumps(payload)
+    try:
+        # From this thread, never the GUI thread: evaluate_js waits for the GUI
+        # thread to run it, and the handler that called us IS the GUI thread.
+        win.evaluate_js(js)
+    except Exception as e:
+        log(f"Could not hand a drop to the window ({type(e).__name__}) \u2014 "
+            f"trying the event stream", "warning")
+        sse_notify("external_drop", payload)
+
+
+def _dropped_uri_payload(url):
+    """What the page is told about one caught drop."""
+    p = urllib.parse.urlsplit(url)
+    if p.scheme in ("http", "https"):
+        return {"url": url}
+    if p.scheme != "file":
+        return {"error": "That picture could not be taken over \u2014 save it first, "
+                         "then drag the file in"}
+    path = urllib.request.url2pathname(p.path)
+    if p.netloc and p.netloc.lower() != "localhost":
+        path = "\\\\" + p.netloc + path                # \\server\share\...
+    name = os.path.basename(path.rstrip("\\/")) or path
+    if not os.path.isfile(path):
+        return {"error": f"{name} is a folder or no longer there \u2014 drag the "
+                         f"pictures themselves"}
+    if os.path.splitext(path)[1].lower() not in MEDIA_EXTENSIONS:
+        return {"error": f"{name} is not an image or video TrackImage handles"}
+    db = _get_thread_db()
+    try:
+        known = _library_row_for_path(db, path)
+    finally:
+        db.close()
+    if known:
+        # One of the library's own files coming back from a drag that left the
+        # window. Adding it would copy it in twice, and the guard cannot tell a
+        # drag out and back from a deliberate move -- so it stays where it is.
+        return {"error": f"{name} is already in the library"}
+    return {"token": _claim_native([{"name": name, "path": path}]), "names": [name]}
 
 
 def _library_row_for_path(db, path):

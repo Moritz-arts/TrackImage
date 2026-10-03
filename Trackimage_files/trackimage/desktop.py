@@ -19,7 +19,7 @@ from .duplicates import _ensure_mem_pairs
 from .scanning import _AUTOSYNC, _autosync_load, _fix_oriented_sizes_async, _purge_own_folder_rows, _scan_orphans_async, _sweep_orphan_images, start_watcher
 from .network import _lan_ips, _net_cfg, _serve_on
 from .runtime import _replay_install_log, _run_pending_runtime_install, check_assets, check_venv
-from .importing import _bind_native_drop, native_drag_available
+from .importing import _bind_native_drop, _guard_browser_opens, native_drag_available
 from .api_tags import _load_ignore_file
 
 
@@ -327,6 +327,10 @@ def main():
         # to be decided on the server, so a browser tab pointed at the same
         # program was told it was the window -- and had its drag and drop
         # switched off in favour of a native drag that only exists in the window.
+        try:
+            _guard_browser_opens()  # a drop the page missed must not open a browser
+        except Exception as _e:
+            log(f"Could not guard the browser against drops ({type(_e).__name__})", "warning")
         _win = _webview.create_window(f"TrackImage v{VERSION}",
                                       f"http://127.0.0.1:5001/?ti_app=1",
                                       width=1600, height=1000, min_size=(900, 600),

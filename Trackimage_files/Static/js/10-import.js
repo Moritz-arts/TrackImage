@@ -6,8 +6,12 @@
 var _impDepth=0;
 
 function _impOurOwn(){
-  if(S.dragIds&&S.dragIds.length)return true;
-  return (typeof _cdHandedRecently==='function')&&_cdHandedRecently(8000);
+  /* A drag of the page's own: one that started here and is still going, the
+     drag-out to other programs, or its files coming straight back. Live state
+     only -- S.dragIds is not asked: a drag that never ended left it set, and
+     then every drop from outside was refused. */
+  return !!(_impPageDrag||(typeof _tiDrag!=='undefined'&&_tiDrag.active)
+    ||((typeof _cdHandedRecently==='function')&&_cdHandedRecently(1500)));
 }
 
 var _impCtrlHeld=false;
@@ -25,55 +29,73 @@ function _impFilesInEvent(e){
 }
 
 function _impMaybeFiles(e){
-  /* A link is taken too. Firefox hands a picture over as a link alone when
-     TrackImage is not the active window, and a drag this page does not accept
-     falls to the webview, which opens a link in a new window -- pywebview
-     passes that to the default browser, so Firefox opened the picture instead
-     of TrackImage adding it. The link is downloaded now (see _impLinkOf).
-
-     A drag whose types say nothing is taken seriously anyway. Some sources --
-     Outlook, a few file managers, and the app window itself when a drag enters
-     it before it has come to the front -- hand over an empty type list until
-     the drop actually happens, and refusing those means the drop never
-     arrives: the browser only delivers one where dragover said yes. Nothing is
-     lost by saying yes early; a drop that turns out to carry nothing usable is
-     answered with a message a moment later. */
+  /* Whether a drag can carry a picture, and so raises the veil. Taking the drag
+     is the net's job and does not ask this: a bare word from an editor is
+     taken too, but gets no veil -- the veil would cover the text field it is
+     meant for. A drag whose types say nothing yet (some sources fill them in
+     only at the drop) is given the benefit of the doubt. */
   return _impFilesInEvent(e)||_impLinkInEvent(e)||!_impTypes(e).length;
 }
 
-/* A drag that started on this page -- selected text, a link in the console --
-   is not an import. It matters now that links and HTML are taken: without
-   this, dragging a selection across the gallery raised the import veil. The
-   next click clears it too, so a dragend that never came cannot leave every
-   later drop refused. */
-var _impFromPage=false;
-document.addEventListener('dragstart',function(){_impFromPage=true;},true);
-document.addEventListener('dragend',function(){_impFromPage=false;},true);
-document.addEventListener('mousedown',function(){_impFromPage=false;},true);
+/* A drag that started on this page is not an import -- known from dragstart to
+   dragend, and cleared by anything that says it is over. pywebview cancels the
+   dragstart of every <img> and <a> (its draggable=False), and a cancelled
+   dragstart never gets a dragend: v4.80's flag then stayed set and refused
+   every drop from outside until the next click into TrackImage -- the Firefox
+   window "again and again". The window listener runs after pywebview's
+   document one and takes the flag back when the drag never began. */
+var _impPageDrag=false;
+document.addEventListener('dragstart',function(){_impPageDrag=true;},true);
+window.addEventListener('dragstart',function(e){if(e.defaultPrevented)_impPageDrag=false;});
+['dragend','mousedown'].forEach(function(n){
+  document.addEventListener(n,function(){_impPageDrag=false;},true);});
+window.addEventListener('blur',function(){_impPageDrag=false;});
+
+function _impTextTarget(e){
+  /* Only where typing goes is the browser's own drop -- the text -- wanted.
+     Everywhere else, sliders and checkboxes included, a drop nobody takes is
+     one Chromium opens in a new window. The rename field is not one: a link
+     dropped there renamed the picture when it lost focus. */
+  var t=e&&e.target;if(!t||!t.closest)return false;
+  if(t.closest('textarea,[contenteditable="true"]'))return true;
+  var i=t.closest('input');
+  return !!(i&&i.id!=='rename-input'&&!i.readOnly&&!i.disabled
+    &&/^(text|search|url|email|)$/.test((i.getAttribute('type')||'').toLowerCase()));
+}
+
+function _impEffect(dt){
+  /* A dropEffect the source does not allow turns the drop into nothing, without
+     a word -- so the one asked for is one the source offers. */
+  var a=String((dt&&dt.effectAllowed)||'all');
+  if(/^(all|uninitialized|none)$/.test(a)||/copy/i.test(a))return 'copy';
+  return /move/i.test(a)?'move':/link/i.test(a)?'link':'copy';
+}
 
 function _impRefuse(e){
-  /* Why this drag is none of the importer's business, or '' when it is.
-     One answer for all four handlers, because they have to agree: dragenter
-     and dragover are what make the browser accept a drop at all, so a check
-     only one of them knows about does not refuse the drop -- it makes the drop
-     vanish, which is exactly what "it works sometimes" feels like. */
-  if(S.dragIds&&S.dragIds.length)return 'own';         // a drag inside the app
-  if(_impFromPage)return 'own';
-  /* Files this window handed to Windows a moment ago, being dragged back over
-     it. Only for a moment: after that an external drop must be accepted again,
-     and whether they really are ours is settled by name at the drop itself. */
-  if(_cdHandedRecently(1500))return 'own';
+  /* Why this drag is none of the importer's business, or '' when it is. It
+     decides what the drop does, never whether it is taken: the net in
+     13-startup.js takes every drag, because one that is refused is one
+     Chromium opens in a new window. */
+  if(_impOurOwn())return 'own';                        // see _impOurOwn
   var t=e&&e.target;
-  if(t&&t.closest){
-    if(t.closest('#dup-dropzone'))return 'dup';        // has its own drop
-    if(t.closest('input,textarea,[contenteditable="true"]'))return 'field';
-  }
+  if(t&&t.closest&&t.closest('#dup-dropzone'))return 'dup';   // has its own drop
+  if(_impTextTarget(e))return 'field';
   return '';
 }
 
 function _impLinkInEvent(e){
   var t=_impTypes(e);
   return t.indexOf('text/uri-list')>=0||t.indexOf('text/x-moz-url')>=0||t.indexOf('text/html')>=0;
+}
+
+function _impOwnUrl(u){
+  /* One of TrackImage's own addresses -- /file/ or /thumb/ of a picture already
+     here, from this window or from a TrackImage tab in a browser. Downloading
+     it would add a copy of something the library has. */
+  try{var x=new URL(u,location.href);}catch(_e){return false;}
+  if(!/^https?:$/.test(x.protocol))return false;
+  return (x.port||'')===(location.port||'')&&['127.0.0.1','localhost','[::1]',
+    location.hostname].indexOf(x.hostname)>=0;
 }
 
 function _impLinkOf(dt){
@@ -86,12 +108,15 @@ function _impLinkOf(dt){
     try{
       var im=new DOMParser().parseFromString(h,'text/html').querySelector('img[src]');
       var src=im?im.getAttribute('src'):'';
-      if(/^(https?:|data:image\/|data:video\/)/i.test(src))return src;
+      if(/^(https?:|data:image\/|data:video\/)/i.test(src))return _impOwnUrl(src)?'':src;
     }catch(_e){}
   }
   try{u=dt.getData('text/uri-list')||'';}catch(_e){}
   if(!u){try{u=(dt.getData('text/x-moz-url')||'').split('\n')[0];}catch(_e){}}
-  return (u.split(/\r?\n/).filter(function(l){return l&&l.charAt(0)!=='#';})[0]||'').trim();
+  if(!u){try{u=dt.getData('text/plain')||'';}catch(_e){}
+    if(!/^https?:\/\/\S+$/i.test(u.trim()))u='';}
+  u=(u.split(/\r?\n/).filter(function(l){return l&&l.charAt(0)!=='#';})[0]||'').trim();
+  return _impOwnUrl(u)?'':u;
 }
 
 function _impDataFile(uri){
@@ -146,10 +171,14 @@ function _impCollectFiles(dt){
   });
 }
 
-function _impVeil(on,html){
+function _impVeil(on,html,choose){
+  /* Clicks reach the veil only while it holds the folder list. As a prompt it
+     lets the drag through to whatever is under it -- a text field, the
+     duplicates' drop zone -- so those still get their own drop. */
   var v=document.getElementById('import-veil');if(!v)return;
   if(html!==undefined)document.getElementById('iv-card').innerHTML=html;
   v.classList.toggle('on',!!on);
+  v.classList.toggle('choose',!!(on&&choose));
 }
 
 function _impTarget(){
@@ -173,18 +202,13 @@ function _impPrompt(){
     +'Right now more than one folder is showing, so let go and pick where they should land.</div>';
 }
 
-function _impDropGuardTarget(e){
-  var t=e.target;
-  return !!(t&&t.closest&&t.closest('input,textarea,[contenteditable="true"]'));
-}
-
 async function _impChooseFolder(job){
   /* Every drop waiting for a folder is kept -- a second one while this list is
      open used to replace the first, whose files then went nowhere. */
   var jobs=window._impPending=(window._impPending||[]);jobs.push(job);
   var n=jobs.reduce(function(a,j){return a+_impCount(j);},0);
   _impVeil(true,'<div class="iv-title">Where should these go?</div>'
-    +'<div class="iv-note">Loading folders…</div>');
+    +'<div class="iv-note">Loading folders…</div>',true);
   var d=null;
   try{d=await api('/api/import-targets');}catch(_e){}
   var list=(d&&d.folders)||[];
@@ -197,7 +221,7 @@ async function _impChooseFolder(job){
       +esc(f.display)+'</button>';
   });
   h+='</div><div class="iv-note"><button class="btn btn-sm" onclick="_impCancel()">Cancel</button></div>';
-  _impVeil(true,h);
+  _impVeil(true,h,true);
 }
 
 function _impPick(display){
@@ -207,7 +231,25 @@ function _impPick(display){
 
 function _impCancel(){window._impPending=null;_impVeil(false);}
 
-function _impCount(job){return job.url?1:job.files.length;}
+function _impCount(job){return job.url?1:job.files.length||(job.names||[]).length;}
+
+function tiExternalDrop(d){
+  /* A drop the page never saw: Python caught it on its way to the default
+     browser (_guard_browser_opens) and hands it over here -- the address of a
+     picture, a token for a file whose path it knows, or why it cannot be
+     used. From here it is the same as any other drop. */
+  if(!d)return;
+  if(d.error){showToast(d.error,'error');return;}
+  if(d.url&&_impOwnUrl(d.url)){showToast('That picture is already in your library','error');return;}
+  var job=d.url?{url:d.url,files:[],copy:false}
+         :d.token?{files:[],names:d.names||[],token:d.token,copy:true}:null;
+  if(!job)return;
+  if(!window._impPending)_impReset();      // an open folder list stays open
+  if(S.page!=='gallery')navigate('gallery');
+  var t=_impTarget();
+  if(t)return importFilesTo(t,job);
+  _impChooseFolder(job);
+}
 
 function _impJob(files,copy){
   /* What a drop becomes: its files, Ctrl at the moment of the drop, and a token
@@ -222,6 +264,21 @@ function _impJob(files,copy){
     .catch(function(){return job;});
 }
 
+function _impReplayEarly(){
+  /* Drops let go while the page was still loading, kept by the net in
+     index.html: taken then, added now that there is a library to add them to. */
+  var list=window._tiEarlyDrops||[];window._tiEarlyDrops=[];
+  list.forEach(function(d){
+    var link=_impLinkOf({getData:function(k){return d[k]||'';}});
+    var files=d.files||[];
+    var go=function(job){var t=_impTarget();if(t)return importFilesTo(t,job);_impChooseFolder(job);};
+    if(files.length)return _impJob(files,false).then(go);
+    if(/^https?:/i.test(link))return go({url:link,files:[],copy:false});
+    if(/^data:/i.test(link))return _impDataFile(link).then(function(f){return _impJob(f,false);}).then(go)
+      .catch(function(){showToast('That drop could not be read','error');});
+  });
+}
+
 /* Drops are queued and run one after another, in the background. An import
    used to hold a full-screen veil until the server answered, and while
    TrackImage was busy that answer could take long enough to look like the drop
@@ -232,7 +289,7 @@ var _impQueue=[],_impBusy=false;
 
 function importFilesTo(display,job){
   _impVeil(false);
-  if(!job||!(job.url||(job.files&&job.files.length)))return;
+  if(!job||!(job.url||job.token||(job.files&&job.files.length)))return;
   job.display=display;
   _impQueue.push(job);
   if(_impBusy){
@@ -278,6 +335,7 @@ async function _impRun(job){
     }catch(_e){nr=null;}
     if(nr&&nr.ok)return _impFinish(nr,display,copyMode?'copied':'moved');
     if(nr&&nr.error){showToast(nr.error,'error');return;}
+    if(!files.length){showToast('The dropped file could not be added','error');return;}
   }
   var fd=new FormData();
   fd.append('folder',display);
