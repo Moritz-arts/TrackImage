@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.81 — 2026-10-03
+
+- A drop into the app window never opens the default browser any more
+
 ## v4.80 — 2026-10-02
 
 - Dropped files are queued and added while TrackImage is busy
