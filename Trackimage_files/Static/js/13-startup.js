@@ -9,11 +9,22 @@ document.addEventListener('keyup',function(e){if(e.key==='Control'||e.key==='Met
 
 window.addEventListener('blur',function(){_impCtrlHeld=false;});
 
-['dragover','drop'].forEach(function(name){
+/* The net: every drag is taken, on every element, from the first dragenter on.
+   Whenever the element under the pointer changes Chromium asks dragenter
+   alone, and an update nobody took is one where letting go opens what the
+   drag carries in a new window -- Firefox, by way of pywebview. dragenter was
+   missing here, and the page's own refusals made this skip whole drags. Only
+   real text fields are left to the browser; what a drop does is decided
+   below, never by refusing it here. It replaces the one in index.html, which
+   covers the seconds before these files have loaded. */
+['dragenter','dragover','drop'].forEach(function(name){
+  window.removeEventListener(name,window._tiEarlyDrop,true);
   window.addEventListener(name,function(e){
-    if(_impOurOwn())return;
-    if(_impDropGuardTarget(e))return;
+    if(_impTextTarget(e))return;
     e.preventDefault();
+    /* Ids left behind by a drag that never ended: on a folder row they would
+       have moved those pictures when something from outside was dropped. */
+    if(name==='dragenter'&&S.dragIds&&!_impOurOwn())S.dragIds=null;
   },true);
 });
 
@@ -30,26 +41,24 @@ document.addEventListener('keydown',function(e){
   if(e.key==='Escape'&&_impDepth)_impReset();
 },true);
 
-/* The three below are one gesture, so they answer the same question the same
-   way -- see _impRefuse. What they must never do is disagree: dragenter and
-   dragover are the only things that make the browser accept a drop, and a page
-   state either of them refuses over turns the drop into nothing at all. */
+/* The three below only raise the veil and say what a drop will do; taking the
+   drag is the net's job above. They answer the same question the same way --
+   see _impRefuse. */
 document.addEventListener('dragenter',function(e){
-  if(!_impMaybeFiles(e))return;
-  if(_impRefuse(e))return;
+  if(!_impMaybeFiles(e)||_impRefuse(e))return;
   _impDepth=1;_impAlive();e.preventDefault();_impVeil(true,_impPrompt());
+  if(e.dataTransfer)e.dataTransfer.dropEffect=_impEffect(e.dataTransfer);
 });
 
 document.addEventListener('dragover',function(e){
-  if(!_impMaybeFiles(e))return;
-  if(_impRefuse(e))return;
+  if(!_impMaybeFiles(e)||_impRefuse(e))return;
   /* The veil is raised here too, not only on dragenter. A window that was not
      in front when the drag started can miss that first event entirely, and
      then nothing on screen said the drop would be taken -- which is what made
      dropping into an unfocused TrackImage look like it did not work. */
   if(!_impDepth){_impDepth=1;_impVeil(true,_impPrompt());}
   _impAlive();
-  e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect='copy';
+  e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect=_impEffect(e.dataTransfer);
 });
 
 document.addEventListener('dragleave',function(e){
@@ -67,8 +76,12 @@ document.addEventListener('drop',function(e){
      the webview handles itself -- a link it opens in a new window. */
   e.preventDefault();
   var hasFiles=_impFilesInEvent(e),hasLink=_impLinkInEvent(e);
-  if(!hasFiles&&!hasLink){_impReset();return;}
-  var link=hasLink?_impLinkOf(e.dataTransfer):'';
+  var link=_impLinkOf(e.dataTransfer);
+  if(!hasFiles&&!hasLink&&!link){
+    /* A bare word let go over the gallery: taken, so nothing opens it, and
+       only worth a word when the veil had promised to take a picture. */
+    if(_impDepth)showToast('That drop carried no picture TrackImage can use','error');
+    _impReset();return;}
   _impDepth=0;
   if(_impWatch){clearInterval(_impWatch);_impWatch=null;}
   /* v4.41: Ctrl held at the moment of the drop means COPY, the way it does
@@ -192,6 +205,10 @@ document.addEventListener('mousedown',function(e){
 
 document.addEventListener('mousemove',function(e){
     if(!_tiDrag.armed)return;
+    /* The button is up, so the mouseup was missed -- released outside the
+       window, or swallowed by a dialog. Without this the next plain movement
+       started a drag nobody was making, and its ids refused drops from outside. */
+    if(!(e.buttons&1)){if(_tiDrag.active)_cdDisarm();_cdCleanup();return;}
     var x=e.clientX,y=e.clientY;
     if(!_tiDrag.active){
         if(Math.abs(x-_tiDrag.sx)<6&&Math.abs(y-_tiDrag.sy)<6)return;
@@ -345,4 +362,4 @@ document.documentElement.style.setProperty('--gallery-cols',S.cols);
 
 history.replaceState({page:'gallery'},'','/');
 
-init();
+init().then(_impReplayEarly,_impReplayEarly);

@@ -278,9 +278,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg-primary)
    names the folder they will land in before anything is written -- the file
    goes to the place that is open on screen, so where it shows up in TrackImage
    and where it sits on disk are never two different answers. */
-#import-veil{position:fixed;inset:0;z-index:180;display:none;align-items:center;
+#import-veil{position:fixed;inset:0;z-index:250;display:none;align-items:center;
   justify-content:center;background:rgba(10,11,13,.82);backdrop-filter:blur(3px);}
-#import-veil.on{display:flex;}
+#import-veil.on{display:flex;pointer-events:none;}
+#import-veil.on.choose{pointer-events:auto;}
 #import-veil .iv-card{border:2px dashed var(--accent);border-radius:16px;padding:34px 44px;
   text-align:center;background:var(--bg-secondary);max-width:min(560px,86vw);}
 #import-veil .iv-title{font-size:19px;font-weight:600;margin-bottom:8px;}

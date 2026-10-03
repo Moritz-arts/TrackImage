@@ -27,7 +27,7 @@ from .tagger import _tag_ensure_running, _tag_save_cfg
 from .duplicates import _mem_invalidate
 from .scanning import _AUTOSYNC, _incremental_sync, _orphan_ids, _orphan_notice, _prune_dirs, _skip_dir, _sync_paths, _wipe_images_by_ids, restart_watcher, scan_all_folders, start_watcher, stop_watcher
 from .picker import _PICKER_CODE_TK, _PICKER_CODE_WIN, _picker_env, _run_picker
-from .importing import _library_row_for_path, _native_drop, _native_drop_lock, _paths_for_ids, _report_import_dupes, clipboard_image_png, clipboard_read
+from .importing import _claim_native, _library_row_for_path, _native_claims, _native_drop, _native_drop_lock, _paths_for_ids, _report_import_dupes, clipboard_image_png, clipboard_read
 from .network import _is_local_request
 
 
@@ -425,9 +425,6 @@ def api_bulk_delete_folders():
     return jsonify({"ok": True, "deleted": deleted, "deleted_files": total_files, "errors": errors})
 
 
-_native_claims = {}       # token -> (time, files): drops claimed, not yet imported
-
-
 @app.route("/api/import/native-claim", methods=["POST"])
 def api_import_native_claim():
     """Take the paths pywebview reported for a drop, at the moment of the drop.
@@ -460,13 +457,7 @@ def api_import_native_claim():
         _time.sleep(0.05)
     if matched is None:
         return jsonify({"ok": False, "reason": "no-paths"})
-    token = os.urandom(8).hex()
-    with _native_drop_lock:
-        now = _time.time()
-        for k in [k for k, v in _native_claims.items() if now - v[0] > 3600]:
-            del _native_claims[k]
-        _native_claims[token] = (now, matched)
-    return jsonify({"ok": True, "token": token})
+    return jsonify({"ok": True, "token": _claim_native(matched)})
 
 
 @app.route("/api/import/native-drop", methods=["POST"])
@@ -783,11 +774,9 @@ _EXT_FOR_TYPE = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png",
 def api_import_url():
     """A picture dragged in as a link -- downloaded and added like a file.
 
-    Firefox hands a picture over as a link alone when TrackImage is not the
-    active window, without the file. The page did not take such a drop, so the
-    webview did what it does with a link: open it in a new window, which
-    pywebview passes to the default browser -- Firefox opened the picture
-    instead of TrackImage adding it. Now the link is fetched here.
+    A drop whose file did not come along (a browser that could not write it
+    out), and a drop the page missed altogether and _guard_browser_opens caught
+    on its way to the default browser, arrive here as the picture's address.
     """
     data = request.get_json(silent=True) or {}
     url = str(data.get("url") or "").strip()
