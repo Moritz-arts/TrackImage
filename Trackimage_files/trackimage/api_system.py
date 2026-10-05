@@ -24,7 +24,7 @@ from .updater import (check_for_update, start_install, status as update_status,
 from .db import _db_commit_retry, _db_file_bytes, _db_write_lock, _get_thread_db, _vacuum, _vacuum_run, get_db
 from .events import _active_tabs, _cancel_shutdown_timer, _check_shutdown, _restart_self, _tabs_lock, sse_clients, sse_lock
 from .thumbnails import _thumb_cfg, _thumb_regen, _thumb_regen_worker, _thumb_target_workers, _thumb_workers_cfg
-from .processing import _dispatch_compute, _hash_gaveup, _hash_progress, _mark_hash_fail, _mp_configured, _mp_set_workers, _mp_target_procs, _power_state, _proc, _proc_ensure_running, _proc_lock, _proc_notify, _proc_progress_payload, _proc_save_setting, _proc_stop
+from .processing import _dispatch_compute, _hash_gaveup, _hash_progress, _mark_hash_fail, _mp_configured, _mp_set_workers, _mp_target_procs, _net_gate, _NET_READS_MAX, _power_state, _proc, _proc_ensure_running, _proc_lock, _proc_notify, _proc_progress_payload, _proc_save_setting, _proc_stop
 from .tagger import _tag_notify, _tag_state
 from .duplicates import _dup_progress, _mem_invalidate
 from .network import _NET_FAILS, _NET_REACHED, _NET_SESSIONS, _apply_network_state, _has_qrcode, _is_local_request, _lan_ips, _lan_ips_detail, _net_cfg, _net_cfg_save, _net_note_fail, _net_note_reached, _net_rate_limited, _net_token_new
@@ -173,6 +173,14 @@ def api_processing_settings():
         _proc["workers_cfg"] = n
         _proc_save_setting("proc_workers", n)
         log(f"Worker threads set to {'Auto' if not n else n} \u2014 {eff} organiser threads")
+    if "net_reads" in data:
+        try:
+            n = max(1, min(_NET_READS_MAX, int(data["net_reads"])))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid read count"}), 400
+        _net_gate.resize(n)
+        _proc_save_setting("net_reads", n)
+        log(f"Network folders: {n} file{'s' if n != 1 else ''} read at a time")
     if "auto" in data:
         _proc["auto"] = bool(data["auto"])
         _proc_save_setting("proc_auto", "1" if _proc["auto"] else "0")
