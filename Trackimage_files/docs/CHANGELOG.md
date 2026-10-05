@@ -5,6 +5,12 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.82 — 2026-10-05
+
+- Start: a large library on a NAS no longer keeps the window from opening for an hour
+- Network folders: background work reads a few files at a time instead of jamming the NAS
+- Gallery and duplicate lists ask a NAS for file dates side by side, not one by one
+
 ## v4.81 — 2026-10-03
 
 - A drop into the app window never opens the default browser any more
