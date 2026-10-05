@@ -8,7 +8,9 @@ import hashlib
 import os
 import platform
 import re
+import threading
 import time as _time
+from concurrent.futures import ThreadPoolExecutor
 from .config import VERSION
 from .db import get_db
 
@@ -33,6 +35,26 @@ def get_filepath_hash(filepath):
     except:
         mt = 0
     return hashlib.md5(f"{VERSION}:{filepath}:{mt}".encode()).hexdigest()[:8]
+
+
+_fph_pool = []
+_fph_lock = threading.Lock()
+
+
+def filepath_hashes(paths):
+    """get_filepath_hash() for many files at once, keyed by path.
+
+    Each hash asks the disk for a date. One after another, that cost a gallery
+    page sixty round trips to the NAS before it could show anything, and the
+    duplicate list one per picture in every group -- thousands of them. Asked
+    side by side, the waits overlap instead of adding up."""
+    paths = list(dict.fromkeys(paths))
+    if len(paths) < 4:
+        return {p: get_filepath_hash(p) for p in paths}
+    with _fph_lock:
+        if not _fph_pool:
+            _fph_pool.append(ThreadPoolExecutor(max_workers=16, thread_name_prefix="fphash"))
+    return dict(zip(paths, _fph_pool[0].map(get_filepath_hash, paths)))
 
 
 def find_available_filename(directory, desired_name):
