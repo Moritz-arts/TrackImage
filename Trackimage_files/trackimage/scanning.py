@@ -789,6 +789,47 @@ def _wipe_images_by_ids(db, ids, progress=None, chunk=5000):
     return done
 
 
+def _own_rows(rows, roots):
+    """Ids of the rows _skip_file() would refuse, without asking the disk per row.
+
+    _skip_file() resolves a row's folder with realpath, and on Windows realpath
+    OPENS the folder -- over the network, for a library on a NAS. Once per image
+    row at startup that was 151,000 round trips before the port opened: over an
+    hour, the launcher gave up after 35 s, and the NAS was too busy to serve
+    anything else meanwhile. Each linked folder is resolved once now and a row
+    is mapped onto it as text; only a row under no linked folder asks the disk,
+    and then once per folder."""
+    resolved = []
+    for root in roots:
+        try:
+            resolved.append((os.path.normcase(root).rstrip("\\/"),
+                             os.path.normcase(os.path.realpath(root)).rstrip("\\/")))
+        except Exception:
+            pass
+    seen, gone = {}, []
+    for r in rows:
+        fp = r["filepath"]
+        if not fp:
+            continue
+        if any(p.lower() in _SKIP_DIR_NAMES for p in fp.replace("\\", os.sep).split(os.sep)[:-1]):
+            gone.append(r["id"])
+            continue
+        parent = os.path.dirname(fp)
+        key = os.path.normcase(parent)
+        for root, real in resolved:
+            if key == root or key.startswith(root + os.sep):
+                real += key[len(root):]
+                hit = any(real == o or real.startswith(o + os.sep) for o in _OWN_DIRS)
+                break
+        else:
+            if key not in seen:
+                seen[key] = _skip_dir(parent)
+            hit = seen[key]
+        if hit:
+            gone.append(r["id"])
+    return gone
+
+
 def _purge_own_folder_rows():
     """v4.44: forget images that were read out of TrackImage's own folder.
 
@@ -802,9 +843,10 @@ def _purge_own_folder_rows():
     db = get_db()
     try:
         rows = db.execute("SELECT id, filepath FROM images").fetchall()
+        roots = [r["path"] for r in db.execute("SELECT path FROM scan_folders").fetchall()]
     except Exception:
         return
-    gone = [r["id"] for r in rows if r["filepath"] and _skip_file(r["filepath"])]
+    gone = _own_rows(rows, roots)
     if not gone:
         return
     try:
