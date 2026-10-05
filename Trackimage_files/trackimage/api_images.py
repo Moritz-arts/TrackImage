@@ -20,7 +20,7 @@ from .config import HAS_PHASH, Image, app
 from .logging_setup import log
 from .platform_bits import _no_window
 from .db import _folder_args, _folder_cond, _name_base_conds, _norm_tag, _search_conditions, extract_search_text, get_db
-from .media import find_available_filename, find_next_global_number, get_filepath_hash, resolve_display_folder
+from .media import find_available_filename, find_next_global_number, filepath_hashes, get_filepath_hash, resolve_display_folder
 from .metadata import _EXIFTOOL, _exiftool_read, extract_metadata, move_sidecar_with, strip_metadata_from_file
 from .hashing import _phash16, _sim_pct, compute_hashes
 from .thumbnails import generate_thumbnail_bytes
@@ -113,12 +113,13 @@ def api_images():
     rows = db.execute(q, params).fetchall()
 
     images = []
+    fph = filepath_hashes([r["filepath"] for r in rows])
     for r in rows:
         mt = r["media_type"] or "image"
         images.append({
             "id": r["id"], "filename": r["filename"], "folder": r["folder"],
             "width": r["width"], "height": r["height"], "file_date": r["file_date"],
-            "fphash": get_filepath_hash(r["filepath"]),
+            "fphash": fph[r["filepath"]],
             "is_video": mt == "video", "media_type": mt,
             "rating": r["rating"] or 0
         })

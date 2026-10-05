@@ -12,7 +12,7 @@ import time as _time
 from .config import HAS_PHASH, Image, app, np
 from .logging_setup import log
 from .db import _db_commit_retry, _db_write_lock, _folder_args, _get_thread_db, get_db
-from .media import get_filepath_hash
+from .media import filepath_hashes, get_filepath_hash
 from .hashing import _sim_pct
 from .processing import _hash_progress, _oriented_size, _proc, _proc_counts, _rate_eta
 from .duplicates import _compute_simtag_pairs, _dup_progress, _ensure_mem_pairs, _group_cache, _groups_from_db, _ignored_apply, _ignored_load, _ignored_lock, _ignored_pairs, _mem_pairs_ready, _popcount_func, _simgroup_cache, _simtag_cache, _simtag_groups, _simtag_lock, _simtag_progress, _tag_signature
@@ -103,7 +103,7 @@ def api_find_similar(image_id):
         if dist <= max_dist:
             similarity = _sim_pct(dist)
             results.append({"id": r["id"], "filename": r["filename"], "folder": r["folder"],
-                            "fphash": get_filepath_hash(r["filepath"]), "media_type": r["media_type"] or "image",
+                            "fphash": r["filepath"], "media_type": r["media_type"] or "image",
                             "similarity": similarity, "distance": dist,
                             "width": r["width"] or 0, "height": r["height"] or 0,
                             "file_size": r["file_size"] or 0})
@@ -111,6 +111,7 @@ def api_find_similar(image_id):
         qtags = {r[0] for r in db.execute("SELECT tag_id FROM image_tags WHERE image_id=?", (image_id,))}
         results = _verify_by_tags(db, [m["id"] for m in results], qtags, results)
     results.sort(key=lambda x: x["distance"])
+    _fill_fphash(results)
     target_d = {"id": target["id"], "filename": target["filename"], "folder": target["folder"],
                 "fphash": get_filepath_hash(target["filepath"]), "media_type": target["media_type"] or "image",
                 "width": target["width"] or 0, "height": target["height"] or 0,
@@ -194,13 +195,22 @@ def api_similar_tags_one(image_id):
             r = rmap.get(iid)
             if not r: continue
             results.append({"id": r["id"], "filename": r["filename"], "folder": r["folder"],
-                            "fphash": get_filepath_hash(r["filepath"]), "media_type": r["media_type"] or "image",
+                            "fphash": r["filepath"], "media_type": r["media_type"] or "image",
                             "width": r["width"] or 0, "height": r["height"] or 0,
                             "file_size": r["file_size"] or 0,
                             "similarity": sim, "distance": 100 - sim})
+    _fill_fphash(results)
     target_d = {"id": target["id"], "filename": target["filename"], "folder": target["folder"],
                 "fphash": get_filepath_hash(target["filepath"]), "media_type": target["media_type"] or "image"}
     return jsonify({"target": target_d, "similar": results})
+
+
+def _fill_fphash(results):
+    """The loops above put the path where the hash goes; every hash asks the disk,
+    so they are worked out together here -- see filepath_hashes()."""
+    fph = filepath_hashes([m["fphash"] for m in results])
+    for m in results:
+        m["fphash"] = fph[m["fphash"]]
 
 
 @app.route("/api/duplicates/ignore", methods=["POST"])

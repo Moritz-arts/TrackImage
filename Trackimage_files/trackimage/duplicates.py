@@ -9,7 +9,7 @@ from .config import HAS_NUMPY, MAX_DUP_DIST, _MAX_WORKERS, _MEM_PAIR_MIN_THR, _P
 from .logging_setup import log
 from .platform_bits import _boost_thread_qos
 from .db import _db_commit_retry, _db_write_lock, _folder_cond, _get_thread_db, _name_base_conds, _search_conditions
-from .media import get_filepath_hash
+from .media import filepath_hashes
 from .hashing import _sim_pct
 from .processing import _proc, _unlink_progress
 
@@ -353,9 +353,10 @@ def _groups_from_db(db, threshold, folders=None, subs=True, sort="size", charact
     ph = ",".join("?" * len(id_set))
     rows = db.execute(f"SELECT id,filename,folder,filepath,media_type,width,height,file_size,rating,file_date FROM images WHERE id IN ({ph})", list(id_set)).fetchall()
     img_map = {}
+    fph = filepath_hashes([r["filepath"] for r in rows])
     for r in rows:
         img_map[r["id"]] = {"id": r["id"], "filename": r["filename"], "folder": r["folder"],
-                            "fphash": get_filepath_hash(r["filepath"]), "media_type": r["media_type"] or "image",
+                            "fphash": fph[r["filepath"]], "media_type": r["media_type"] or "image",
                             "width": r["width"] or 0, "height": r["height"] or 0,     # v3.73: badges
                             "file_size": r["file_size"] or 0,
                             # v3.83: the duplicates grid renders the gallery info card
@@ -611,16 +612,19 @@ def _simtag_groups(db, min_sim, folders=None, subs=True, sort="size", characters
         neighbors.setdefault(b, {})[a] = s
     img_map = {}
     idl = list(neighbors.keys())
+    rows = []
     for k in range(0, len(idl), 900):
         chunk = idl[k:k + 900]
         ph = ",".join("?" * len(chunk))
-        for r in db.execute(f"SELECT id,filename,folder,filepath,media_type,width,height,file_size,rating,file_date FROM images WHERE id IN ({ph})", chunk).fetchall():
-            img_map[r["id"]] = {"id": r["id"], "filename": r["filename"], "folder": r["folder"],
-                                "fphash": get_filepath_hash(r["filepath"]), "media_type": r["media_type"] or "image",
-                                # v3.83: same payload as pixel mode so the gallery info card + badges work
-                                "width": r["width"] or 0, "height": r["height"] or 0,
-                                "file_size": r["file_size"] or 0,
-                                "rating": r["rating"] or 0, "file_date": r["file_date"] or 0}
+        rows += db.execute(f"SELECT id,filename,folder,filepath,media_type,width,height,file_size,rating,file_date FROM images WHERE id IN ({ph})", chunk).fetchall()
+    fph = filepath_hashes([r["filepath"] for r in rows])
+    for r in rows:
+        img_map[r["id"]] = {"id": r["id"], "filename": r["filename"], "folder": r["folder"],
+                            "fphash": fph[r["filepath"]], "media_type": r["media_type"] or "image",
+                            # v3.83: same payload as pixel mode so the gallery info card + badges work
+                            "width": r["width"] or 0, "height": r["height"] or 0,
+                            "file_size": r["file_size"] or 0,
+                            "rating": r["rating"] or 0, "file_date": r["file_date"] or 0}
     used = set(); groups = []
     for a, b, s in pairs:                        # sorted best-first
         if a in used or b in used: continue
