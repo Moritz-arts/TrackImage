@@ -145,7 +145,7 @@ def _thumb_backfill_worker():
                     if not os.path.isfile(fp):
                         continue
                     try:
-                        tb = _dispatch_thumb(fp)
+                        tb = _dispatch_thumb(fp, background=True)
                         if not tb:
                             continue
                         try: mt = os.stat(fp).st_mtime

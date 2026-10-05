@@ -13,7 +13,7 @@ import traceback
 from . import state
 from .config import Image, VIDEO_EXTENSIONS, _AUTO_SHARE, _AUTO_WORKERS, _CLAIM_PAGE, _CPU_COUNT, _DEFAULT_WORKERS, _MAX_WORKERS, _MEM_PAIR_MIN_THR, _ensure_std_streams
 from .logging_setup import log, log_detail
-from .platform_bits import _Unreachable, _boost_process_priority, _boost_thread_qos
+from .platform_bits import _Unreachable, _boost_process_priority, _boost_thread_qos, _is_network_path
 from .db import _db_commit_retry, _db_write_lock, _get_thread_db, extract_search_text, get_db
 from .events import sse_notify
 from .metadata import extract_metadata
@@ -111,6 +111,7 @@ def _proc_load_settings():
     _proc["workers"] = _wn if _wn else _AUTO_WORKERS  # effective count (Auto = 85%)
     try: _thumb_load_workers_cfg()                   # v3.76
     except Exception: pass
+    _net_reads_load()
 
 
 def _proc_save_setting(key, value):
@@ -196,6 +197,7 @@ def _proc_progress_payload(db=None):
         "workers_eff": max(1, min(_MAX_WORKERS, int(_proc.get("workers") or _AUTO_WORKERS))),
         "scan": _scan, "pairs": _pairs, "unlink": _ul, "thumbs": _thumbs,
         "mp": {"procs": _mp_target_procs(), "auto": _mp_configured() <= 0, "max": _MAX_WORKERS},
+        "net_reads": _net_gate.n, "net_reads_max": _NET_READS_MAX,
     }
 
 
@@ -314,25 +316,31 @@ def _oriented_size(im):
     return w, h
 
 
-def _compute_image_payload(fp, want_thumb):
+def _compute_image_payload(fp, want_thumb, pre=None):
     """Pure compute for one image file (no DB, picklable) — safe in a worker
-    process. Returns None on a transient read/decode failure (caller retries)."""
+    process. Returns None on a transient read/decode failure (caller retries).
+    `pre` is (bytes, mtime, seconds) when the caller already read the file --
+    see _net_read()."""
     _r0 = _time.perf_counter()
-    try:
-        with open(fp, "rb") as f:
-            raw = f.read()
-    except Exception:
-        # v4.43: "could not reach the file" is a different thing from "could not
-        # make sense of it", and telling them apart is what stops a drive going
-        # quiet from writing off an entire library. Returning the string means
-        # every caller either handles it or fails loudly, which a None shared
-        # with the decode path did not.
-        return "unreadable"
+    if pre is not None:
+        raw, mt, _waited = pre
+        _r0 -= _waited
+    else:
+        try:
+            with open(fp, "rb") as f:
+                raw = f.read()
+        except Exception:
+            # v4.43: "could not reach the file" is a different thing from "could not
+            # make sense of it", and telling them apart is what stops a drive going
+            # quiet from writing off an entire library. Returning the string means
+            # every caller either handles it or fails loudly, which a None shared
+            # with the decode path did not.
+            return "unreadable"
+        try:
+            mt = os.stat(fp).st_mtime
+        except Exception:
+            mt = 0
     _r1 = _time.perf_counter()
-    try:
-        mt = os.stat(fp).st_mtime
-    except Exception:
-        mt = 0
     w = h = 0
     try:
         with Image.open(BytesIO(raw)) as im0:
@@ -478,24 +486,107 @@ def _mp_disable(e):
     state._MP_POOL = None
 
 
+class _ReadGate:
+    """A semaphore whose size can change while threads wait on it."""
+    def __init__(self, n):
+        self.n, self.busy, self.cv = n, 0, threading.Condition()
+
+    def __enter__(self):
+        with self.cv:
+            while self.busy >= self.n:
+                self.cv.wait()
+            self.busy += 1
+
+    def __exit__(self, *exc):
+        with self.cv:
+            self.busy -= 1
+            self.cv.notify_all()
+
+    def resize(self, n):
+        with self.cv:
+            self.n = n
+            self.cv.notify_all()
+
+
+_NET_READS_DEFAULT = 2
+_NET_READS_MAX = 16
+_net_gate = _ReadGate(_NET_READS_DEFAULT)
+_net_drive = {}
+
+
+def _on_network(fp):
+    """_is_network_path() once per drive or share, not once per file."""
+    d = os.path.splitdrive(fp)[0].lower()
+    if not d:
+        return _is_network_path(fp)          # no drive to remember: a string test
+    if d not in _net_drive:
+        _net_drive[d] = _is_network_path(fp)
+    return _net_drive[d]
+
+
+def _net_read(fp):
+    """Read a file on a network share in THIS process, a few at a time.
+
+    The background work read every file inside its own compute process, so a
+    library on a NAS had as many reads in flight as there were processes -- 24
+    on a 24-core machine. A slow share does not get faster that way, it jams:
+    3 files a second, and another program reading models off the same NAS took
+    four hours to start instead of ten minutes. The bytes are read under
+    _net_gate here and handed to the pool, so the decoding stays fully
+    parallel. None means a local file: the worker reads it itself, as before."""
+    if not _on_network(fp):
+        return None
+    t0 = _time.perf_counter()
+    with _net_gate:
+        try:
+            with open(fp, "rb") as f:
+                raw = f.read()
+                mt = os.fstat(f.fileno()).st_mtime
+        except Exception:
+            return "unreadable"
+    return (raw, mt, _time.perf_counter() - t0)
+
+
+def _net_reads_load():
+    try:
+        db = _get_thread_db()
+        r = db.execute("SELECT value FROM config WHERE key='net_reads'").fetchone()
+        db.close()
+        if r and str(r["value"]).strip():
+            _net_gate.resize(max(1, min(_NET_READS_MAX, int(r["value"]))))
+    except Exception:
+        pass
+
+
 def _dispatch_compute(fp, want_thumb=False):
+    pre = _net_read(fp)
+    if pre == "unreadable":
+        return pre
     pool = _mp_get_pool()
     if pool is not None:
         try:
-            return pool.apply_async(_compute_image_payload, (fp, want_thumb)).get(timeout=300)
+            return pool.apply_async(_compute_image_payload, (fp, want_thumb, pre)).get(timeout=300)
         except Exception as e:
             _mp_disable(e)
-    return _compute_image_payload(fp, want_thumb)
+    return _compute_image_payload(fp, want_thumb, pre)
 
 
-def _dispatch_thumb(fp):
+def _dispatch_thumb(fp, background=False):
+    # Only the backfill queues at _net_gate: a thumbnail somebody is looking at
+    # must not wait behind it.
+    raw = None
+    if background:
+        pre = _net_read(fp)
+        if pre == "unreadable":
+            return None
+        raw = pre and pre[0]
     pool = _mp_get_pool()
     if pool is not None:
         try:
-            return pool.apply_async(generate_thumbnail_bytes, (fp,)).get(timeout=300)
+            return pool.apply_async(generate_thumbnail_bytes, (fp,), {"_raw": raw}).get(timeout=300)
         except Exception as e:
             _mp_disable(e)
-    return generate_thumbnail_bytes(fp)
+    return generate_thumbnail_bytes(fp, _raw=raw)
 
 
 _ondemand = {"ts": 0.0}
