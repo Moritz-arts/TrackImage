@@ -784,7 +784,13 @@ def _scan_orphans_async():
     threading.Thread(target=_run, daemon=True, name="orphan-check").start()
 
 
-_ORIENT_EXTS = (".jpg", ".jpeg", ".jfif", ".tif", ".tiff", ".heic", ".heif", ".webp", ".png", ".avif")
+# v4.83: the formats where turning is noted in a header that can be read without
+# the picture. Pillow reads a PNG to its end for getexif() when there is no eXIf
+# chunk before the image data -- every A1111/Forge PNG -- and opens WebP and AVIF
+# whole, so on a NAS this "header-only" pass re-read the library in full. The
+# turn note comes from cameras and phones; new files of any format are measured
+# the right way round at import (_oriented_size).
+_ORIENT_EXTS = (".jpg", ".jpeg", ".jfif", ".tif", ".tiff", ".heic", ".heif")
 
 
 def _fix_oriented_sizes_async():
@@ -794,8 +800,13 @@ def _fix_oriented_sizes_async():
     threw its WhatsApp copy away on the aspect ratio before comparing anything.
     New pictures are measured the right way round (see _oriented_size); this
     puts the old ones right. It only reads file headers, in the background, and
-    a file that cannot be reached is simply tried again on the next start."""
-    from .processing import _oriented_size
+    a file that cannot be reached is simply tried again on the next start.
+
+    v4.83: through the network read gate, and resumable -- it saves where it got
+    to every 500 rows, so a start that is closed early does not begin again at
+    the first row the next time."""
+    from contextlib import nullcontext
+    from .processing import _net_gate, _on_network, _oriented_size
     from .config import Image
     def _run():
         try:
@@ -804,31 +815,51 @@ def _fix_oriented_sizes_async():
             try:
                 if db.execute("SELECT value FROM config WHERE key='dims_oriented'").fetchone():
                     return
+                r0 = db.execute("SELECT value FROM config WHERE key='dims_oriented_at'").fetchone()
+                start = int(r0["value"]) if r0 and str(r0["value"]).isdigit() else 0
                 rows = db.execute("SELECT id, filepath, width, height FROM images "
-                                  "WHERE media_type='image' AND width>0 AND height>0").fetchall()
-                fixed, missed = [], 0
+                                  "WHERE media_type='image' AND width>0 AND height>0 AND id > ? "
+                                  "ORDER BY id", (start,)).fetchall()
+                fixed, missed, n_fixed, tried, missed_batch = [], 0, 0, 0, 0
+                stuck = [False]       # once a stretch is left for next time, the mark stays put
+
+                def _save(last_id, advance):
+                    with _db_write_lock:
+                        if fixed:
+                            db.executemany("UPDATE images SET width=?, height=? WHERE id=?", fixed)
+                        if advance:
+                            db.execute("INSERT OR REPLACE INTO config (key, value) VALUES ('dims_oriented_at', ?)",
+                                       (str(last_id),))
+                        _db_commit_retry(db)
+
                 for i, r in enumerate(rows):
                     fp = r["filepath"] or ""
-                    if not fp.lower().endswith(_ORIENT_EXTS):
-                        continue
-                    try:
-                        with Image.open(fp) as im:
-                            raw, shown = im.size, _oriented_size(im)
-                    except Exception:
-                        missed += 1
-                        continue
-                    # Only a row still holding the unturned size is changed, so a
-                    # second run, or a row already measured anew, is left alone.
-                    if shown != raw and (r["width"], r["height"]) == raw:
-                        fixed.append((shown[0], shown[1], r["id"]))
-                    if i % 500 == 499:
+                    if fp.lower().endswith(_ORIENT_EXTS):
+                        tried += 1
+                        try:
+                            with (_net_gate if _on_network(fp) else nullcontext()):
+                                with Image.open(fp) as im:
+                                    raw, shown = im.size, _oriented_size(im)
+                            # Only a row still holding the unturned size is changed, so a
+                            # second run, or a row already measured anew, is left alone.
+                            if shown != raw and (r["width"], r["height"]) == raw:
+                                fixed.append((shown[0], shown[1], r["id"]))
+                        except Exception:
+                            missed += 1
+                            missed_batch += 1
+                    if i % 500 == 499 or i == len(rows) - 1:
+                        # A stretch where nearly every file missed is a drive that is
+                        # away: what was found is written, but the mark does not move
+                        # past it -- nor past anything after it -- so the next start
+                        # tries that stretch again.
+                        stuck[0] = stuck[0] or missed_batch > max(5, tried // 2)
+                        _save(r["id"], not stuck[0])
+                        n_fixed += len(fixed)
+                        fixed, tried, missed_batch = [], 0, 0
                         _time.sleep(0.05)
-                if fixed:
-                    with _db_write_lock:
-                        db.executemany("UPDATE images SET width=?, height=? WHERE id=?", fixed)
-                        _db_commit_retry(db)
+                if n_fixed:
                     _mem_invalidate()
-                    log(f"Turned the recorded size of {len(fixed)} picture(s) that are shown rotated "
+                    log(f"Turned the recorded size of {n_fixed} picture(s) that are shown rotated "
                         "\u2014 duplicates between a phone photo and its shared copy can be found now", "info")
                 # A few rows whose file is gone for good must not make every
                 # start read the whole library again; a drive that is offline

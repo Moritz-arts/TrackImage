@@ -142,14 +142,16 @@ def _thumb_backfill_worker():
                     with clock:
                         ctr["n"] += 1; _thumb_progress["current"] = ctr["n"]
                     fp = r["filepath"]
-                    if not os.path.isfile(fp):
-                        continue
                     try:
-                        tb = _dispatch_thumb(fp, background=True)
+                        # v4.83: no isfile() first -- a file that is gone comes back
+                        # as None anyway, and on a NAS each extra question is a round
+                        # trip. The date comes from the read when it went through the gate.
+                        tb, mt = _dispatch_thumb(fp, background=True)
                         if not tb:
                             continue
-                        try: mt = os.stat(fp).st_mtime
-                        except Exception: mt = 0
+                        if not mt:
+                            try: mt = os.stat(fp).st_mtime
+                            except Exception: mt = 0
                         with _db_write_lock:
                             chk = d2.execute("SELECT filepath FROM images WHERE id=?", (r["id"],)).fetchone()
                             if chk and chk["filepath"] == fp:

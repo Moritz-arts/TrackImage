@@ -2,6 +2,7 @@
 
 Layer 13 of 27 -- see trackimage/__init__.py for the order these load in.
 """
+from contextlib import nullcontext
 from io import BytesIO
 import os
 import threading
@@ -15,6 +16,7 @@ from .db import _db_commit_retry, _db_write_lock, _get_thread_db, _norm_tag, _ro
 from .events import sse_notify
 from .metadata import _split_keywords
 from .thumbnails import generate_video_thumbnail
+from .processing import _net_gate, _net_read, _on_network
 
 
 def _embedded_tags_on():
@@ -592,17 +594,43 @@ def _get_tagger():
             return None
 
 
-def _tag_load_image(fp, mt):
+def _tag_load_image(db, iid, fp, mt):
     """Return an RGB PIL.Image for the tagger: original for image/gif (gif -> first
-    frame by default), a decoded first frame for video. None on hard failure."""
+    frame by default), a decoded first frame for video. None on hard failure,
+    "unreadable" when the file could not be read at all -- that is retried, not
+    recorded as tagged with no tags, which is what a NAS timeout used to cost.
+
+    v4.83: on a network share the original was a third full pass over the library,
+    with up to one read per tagging thread outside _net_gate. The stored thumbnail
+    (1024 px by default) is ample for a 448 px model, so it is used when it is large
+    enough; otherwise the original is read through the gate. Local files as before."""
+    net = _on_network(fp)
     try:
         if mt == "video":
-            jpg = generate_video_thumbnail(fp, max_size=512)
+            with (_net_gate if net else nullcontext()):
+                jpg = generate_video_thumbnail(fp, max_size=512)
             if not jpg:
                 return None
             return Image.open(BytesIO(jpg)).convert("RGB")
-        with open(fp, "rb") as f:
-            raw = f.read()
+        if net:
+            try:
+                r = db.execute("SELECT data FROM thumb_cache WHERE image_id=?", (iid,)).fetchone()
+                if r and r[0]:
+                    im = Image.open(BytesIO(r[0]))
+                    if max(im.size) >= 448:
+                        return im.convert("RGB")
+            except Exception:
+                pass
+            pre = _net_read(fp)
+            if pre == "unreadable":
+                return pre
+            raw = pre[0]
+        else:
+            try:
+                with open(fp, "rb") as f:
+                    raw = f.read()
+            except OSError:
+                return "unreadable"
         return Image.open(BytesIO(raw)).convert("RGB")
     except Exception:
         return None
@@ -619,7 +647,9 @@ def _tag_counts(db):
 def _tag_one(db, tagger, iid, fp, mt, gen_t, char_t):
     """Tag one image. Inference happens OUTSIDE the write lock; only the upsert is
     locked. Returns True on success (or deliberate skip), False to retry later."""
-    img = _tag_load_image(fp, mt)
+    img = _tag_load_image(db, iid, fp, mt)
+    if isinstance(img, str):
+        return False       # not read -- retried, and set aside after three tries
     if img is None:
         # hard decode failure -> mark tagged so the worker doesn't loop on it forever
         try:
