@@ -612,6 +612,7 @@ def _tag_load_image(db, iid, fp, mt):
             if not jpg:
                 return None
             return Image.open(BytesIO(jpg)).convert("RGB")
+        pre = None
         if net:
             try:
                 r = db.execute("SELECT data FROM thumb_cache WHERE image_id=?", (iid,)).fetchone()
@@ -621,16 +622,19 @@ def _tag_load_image(db, iid, fp, mt):
                         return im.convert("RGB")
             except Exception:
                 pass
-            pre = _net_read(fp)
+            pre = _net_read(fp)          # None if the network switch was turned off meanwhile
             if pre == "unreadable":
                 return pre
+        if pre:
             raw = pre[0]
         else:
             try:
                 with open(fp, "rb") as f:
                     raw = f.read()
             except OSError:
-                return "unreadable"
+                # A local file that will not open is gone or forbidden -- recorded,
+                # as before. Only a share gets the retry.
+                return "unreadable" if net else None
         return Image.open(BytesIO(raw)).convert("RGB")
     except Exception:
         return None
@@ -650,7 +654,8 @@ def _tag_one(db, tagger, iid, fp, mt, gen_t, char_t):
     locked. Returns True on success (or deliberate skip), False to retry later."""
     img = _tag_load_image(db, iid, fp, mt)
     if isinstance(img, str):
-        return False       # not read -- retried, and set aside after three tries
+        _time.sleep(2.0)   # not read -- retried, and set aside after three tries; paced,
+        return False       # so a share that stalls for a minute does not use them up at once
     if img is None:
         # hard decode failure -> mark tagged so the worker doesn't loop on it forever
         try:

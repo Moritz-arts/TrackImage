@@ -66,10 +66,10 @@ def _incremental_sync(catch_up=False):
     with _watcher_changed_lock:
         changed = list(_watcher_changed)
         _watcher_changed.clear()
-    if changed:
+    if catch_up:
+        _full_sync()          # covers whatever the watcher had collected as well
+    elif changed:
         _sync_paths(changed)
-    elif catch_up:
-        _full_sync()
 
 
 def _sync_paths(paths):
@@ -821,7 +821,7 @@ def _fix_oriented_sizes_async():
                 rows = db.execute("SELECT id, filepath, width, height FROM images "
                                   "WHERE media_type='image' AND width>0 AND height>0 AND id > ? "
                                   "ORDER BY id", (start,)).fetchall()
-                fixed, missed, n_fixed, tried, missed_batch = [], 0, 0, 0, 0
+                fixed, missed, n_fixed, tried, missed_batch, tried_all = [], 0, 0, 0, 0, 0
                 stuck = [False]       # once a stretch is left for next time, the mark stays put
 
                 def _save(last_id, advance):
@@ -837,6 +837,7 @@ def _fix_oriented_sizes_async():
                     fp = r["filepath"] or ""
                     if fp.lower().endswith(_ORIENT_EXTS):
                         tried += 1
+                        tried_all += 1
                         try:
                             with (_net_gate if _on_network(fp) else nullcontext()):
                                 with Image.open(fp) as im:
@@ -865,7 +866,10 @@ def _fix_oriented_sizes_async():
                 # A few rows whose file is gone for good must not make every
                 # start read the whole library again; a drive that is offline
                 # (most of them missed) is what earns a retry.
-                if missed <= max(20, len(rows) // 50):
+                # Measured against the files actually tried, not every row: with
+                # only JPEG/TIFF/HEIC asked, a share that is away would otherwise
+                # look like a few strays in a library of PNGs.
+                if missed <= max(20, tried_all // 50):
                     with _db_write_lock:
                         db.execute("INSERT OR REPLACE INTO config (key, value) VALUES ('dims_oriented', '1')")
                         _db_commit_retry(db)
