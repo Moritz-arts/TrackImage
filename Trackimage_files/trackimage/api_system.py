@@ -813,7 +813,9 @@ def api_compute_hashes():
                     except Exception: continue
                 for k in range(0, len(_szs), 500):
                     with _db_write_lock:
-                        db.executemany("UPDATE images SET file_size=? WHERE id=?", _szs[k:k + 500])
+                        # still unset: the pool may have written a newer size meanwhile
+                        db.executemany("UPDATE images SET file_size=? WHERE id=? "
+                                       "AND (file_size IS NULL OR file_size=0)", _szs[k:k + 500])
                         _db_commit_retry(db)
             except Exception:
                 _rollback(db)
@@ -833,6 +835,9 @@ def api_compute_hashes():
                 _hash_progress["current"] = i + 1
                 try:
                     pay = _dispatch_compute(r["filepath"], want_thumb=False)   # v3.70: process pool
+                    if pay == "unreadable":
+                        _hash_gaveup.add(r["id"])     # not reachable now -- not "never hashable"
+                        continue
                     ph = pay["ph"] if pay else ""
                     _ts = pay.get("ts") if pay else None                       # v3.73
                     _fs = int(pay.get("fs") or 0) if pay else 0
@@ -847,8 +852,10 @@ def api_compute_hashes():
                     else:
                         _mark_hash_fail(db, r["id"])
                 except Exception:
+                    # A lock timeout or a share that stalled is not a file that can
+                    # never be hashed: set aside for this session, not for good.
                     _rollback(db)
-                    _mark_hash_fail(db, r["id"])
+                    _hash_gaveup.add(r["id"])
             _hash_progress["active"] = False
             if _new:
                 _mem_invalidate()   # v3.70: only when hashes actually changed

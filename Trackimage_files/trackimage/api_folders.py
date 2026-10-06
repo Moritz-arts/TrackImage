@@ -917,7 +917,7 @@ def api_bulk_move_folders():
             errors.append(f"{display}: {e}")
     _db_commit_retry(db)
     start_watcher()
-    _folder_tree_changed(gone=moved)
+    _folder_tree_changed(moved={d: target + "\\" + d.rsplit("\\", 1)[-1] for d in moved})
     return jsonify({"ok": True, "moved": moved, "errors": errors})
 
 
@@ -973,7 +973,7 @@ def api_rename_folder():
     if is_root:
         db.execute("UPDATE scan_folders SET path=?, label=? WHERE path=?", (new_path, new_name, real_path))
     db.commit()
-    _folder_tree_changed(gone=[folder], made=new_display_base)
+    _folder_tree_changed(moved={folder: new_display_base})
     return jsonify({"ok": True})
 
 
@@ -985,15 +985,16 @@ def api_rename_folder():
 # database at once, and the sidebar fills in the empty folders when the walk
 # reports back (the "folders" event). A local root is still walked on the spot;
 # that is quick, and a folder made a moment ago shows straight away.
-_tree = {"dirs": {}, "at": {}, "busy": set()}
+_tree = {"dirs": {}, "at": {}, "busy": set(), "gen": 0}
 _tree_lock = threading.Lock()
 _TREE_TTL = 600
 
 
-def _root_tree(root):
+def _root_tree(root, failed=None):
     """Every folder under one linked root, as the sidebar names them."""
     name, out = Path(root).name, set()
-    for dirpath, dirnames, filenames in _walk_dirs(root):
+    err = (lambda e: failed.append(e.filename or root)) if failed is not None else None
+    for dirpath, dirnames, filenames in _walk_dirs(root, onerror=err):
         rel = os.path.relpath(dirpath, root)
         out.add(name + "\\" + rel if rel != "." else name)
     return out
@@ -1004,14 +1005,28 @@ def _tree_walk_later(root):
         if root in _tree["busy"]:
             return
         _tree["busy"].add(root)
+        gen0 = _tree["gen"]
 
     def _run():
+        again = changed = False
         try:
-            names = _root_tree(root) if os.path.isdir(root) else set()
+            if not os.path.isdir(root):
+                return            # a share that does not answer is not an empty one: keep what was known
+            failed = []
+            names = _root_tree(root, failed)
             with _tree_lock:
-                changed = names != _tree["dirs"].get(root)
-                _tree["dirs"][root] = names
-                _tree["at"][root] = _time.time()
+                # A folder operation while this walk ran is newer than its listing:
+                # keep that edit and walk again, rather than put back what was
+                # deleted or take away what was just made.
+                again = _tree["gen"] != gen0
+                if not again:
+                    old = _tree["dirs"].get(root)
+                    if failed:
+                        names |= old or set()     # a listing that failed lost nothing
+                    changed = names != old
+                    _tree["dirs"][root] = names
+                    if not failed:
+                        _tree["at"][root] = _time.time()
             if changed:
                 sse_notify("folders", {})
         except Exception as e:
@@ -1019,16 +1034,26 @@ def _tree_walk_later(root):
         finally:
             with _tree_lock:
                 _tree["busy"].discard(root)
+            if again:
+                _tree_walk_later(root)
     threading.Thread(target=_run, daemon=True, name="folder-tree").start()
 
 
-def _folder_tree_changed(gone=(), made=None):
-    """After a folder operation: forget what went away, show what was made, and
-    have the next /api/folders walk the network roots again."""
+def _folder_tree_changed(gone=(), made=None, moved=None):
+    """After a folder operation: forget what went away, carry what moved (with
+    everything under it), show what was made, and have the next /api/folders
+    walk the network roots again. A root whose first walk is still running is
+    seeded too, so a folder made meanwhile shows at once."""
     gone = [g for g in gone if g]
+    under = lambda n, g: n == g or n.startswith((g + "\\", g + "/"))
     with _tree_lock:
-        for root, names in _tree["dirs"].items():
-            names = {n for n in names if not any(n == g or n.startswith((g + "\\", g + "/")) for g in gone)}
+        _tree["gen"] += 1
+        for root in set(_tree["dirs"]) | set(_tree["busy"]):
+            names = set(_tree["dirs"].get(root) or ())
+            for old, new in (moved or {}).items():
+                sub = {n for n in names if under(n, old)}
+                names = (names - sub) | {new + n[len(old):] for n in sub}
+            names = {n for n in names if not any(under(n, g) for g in gone)}
             if made and made.split("\\", 1)[0] == Path(root).name:
                 names.add(made)
             _tree["dirs"][root] = names
