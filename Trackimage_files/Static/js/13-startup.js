@@ -362,4 +362,5 @@ document.documentElement.style.setProperty('--gallery-cols',S.cols);
 
 history.replaceState({page:'gallery'},'','/');
 
-init().then(_impReplayEarly,_impReplayEarly);
+/* v4.83: a start that fails says so instead of leaving the window black */
+init().catch(function(e){var s=document.getElementById('ti-splash');if(s)s.remove();showToast('Start failed: '+(e&&e.message||e),'error');}).then(_impReplayEarly);
