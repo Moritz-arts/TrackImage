@@ -11,7 +11,7 @@ from .config import Image, TAGGER_DIR, _AUTO_WORKERS, _CLAIM_PAGE, _MAX_WORKERS,
 from .logging_setup import log, log_detail
 from .platform_bits import _boost_thread_qos
 from .appconfig import _app_config_load
-from .db import _db_commit_retry, _db_write_lock, _get_thread_db, _norm_tag
+from .db import _db_commit_retry, _db_write_lock, _get_thread_db, _norm_tag, _rollback
 from .events import sse_notify
 from .metadata import _split_keywords
 from .thumbnails import generate_video_thumbnail
@@ -629,6 +629,7 @@ def _tag_one(db, tagger, iid, fp, mt, gen_t, char_t):
                     db.execute("UPDATE images SET tagged=1 WHERE id=?", (iid,))
                     _db_commit_retry(db)
         except Exception:
+            _rollback(db)
             return False
         return True
     try:
@@ -665,6 +666,7 @@ def _tag_one(db, tagger, iid, fp, mt, gen_t, char_t):
         sse_notify("tagged", {"id": iid})
         return True
     except Exception:
+        _rollback(db)
         return False
 
 
@@ -674,6 +676,7 @@ def _tag_claim_next(db):
     of 32,766. A library big enough with enough unreadable files would have taken
     every tagging thread down the same way. Paged and filtered in Python for the
     same reason and by the same rules; see _claim_next."""
+    _rollback(db)          # see processing._claim_next
     with _tag_fail_lock:
         failed = {k for k, v in _tag_fail.items() if v >= 3}
     with _tag_claimed_lock:

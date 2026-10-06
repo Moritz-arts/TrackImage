@@ -13,7 +13,7 @@ from . import state
 from .config import FFMPEG_BIN, HAS_PILLOW, Image, _AUTO_WORKERS, _CPU_COUNT, _MAX_WORKERS
 from .logging_setup import log
 from .platform_bits import _no_window
-from .db import _db_commit_retry, _db_write_lock, _get_thread_db, _vacuum_run
+from .db import _db_commit_retry, _db_write_lock, _get_thread_db, _vacuum_run, _rollback
 from .metadata import _icc_validate
 
 
@@ -157,7 +157,7 @@ def _thumb_backfill_worker():
                                            (r["id"], sqlite3.Binary(tb), "image/webp", mt, _time.time()))
                                 _db_commit_retry(d2)
                     except Exception:
-                        pass
+                        _rollback(d2)
             finally:
                 try: d2.close()
                 except Exception: pass

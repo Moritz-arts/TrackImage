@@ -404,6 +404,19 @@ def _db_commit_retry(db, attempts=6):
     return False
 
 
+def _rollback(db):
+    """End a write that failed. A write that ran out of busy_timeout leaves its
+    implicit BEGIN open, and the next SELECT on that connection keeps its
+    snapshot for good: every later write on it fails at once, no checkpoint gets
+    past it and the -wal only grows -- one long wait wedged a worker for the
+    rest of the session."""
+    try:
+        if db.in_transaction:
+            db.rollback()
+    except Exception:
+        pass
+
+
 def _commit_if_held(db, opened, hold=1.0):
     """Commit a walk's open write once it has been held for `hold` seconds.
 
