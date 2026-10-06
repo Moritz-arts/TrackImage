@@ -573,21 +573,27 @@ def _dispatch_compute(fp, want_thumb=False):
 
 
 def _dispatch_thumb(fp, background=False):
+    """Thumbnail bytes, or None. With background=True (the backfill) it returns
+    (bytes, mtime): the read already knows the date, so it is not asked again."""
     # Only the backfill queues at _net_gate: a thumbnail somebody is looking at
     # must not wait behind it.
-    raw = None
+    raw = pre = None
     if background:
         pre = _net_read(fp)
         if pre == "unreadable":
-            return None
+            return None, 0
         raw = pre and pre[0]
+    tb = None
     pool = _mp_get_pool()
     if pool is not None:
         try:
-            return pool.apply_async(generate_thumbnail_bytes, (fp,), {"_raw": raw}).get(timeout=300)
+            tb = pool.apply_async(generate_thumbnail_bytes, (fp,), {"_raw": raw}).get(timeout=300)
         except Exception as e:
             _mp_disable(e)
-    return generate_thumbnail_bytes(fp, _raw=raw)
+            pool = None
+    if pool is None:
+        tb = generate_thumbnail_bytes(fp, _raw=raw)
+    return (tb, pre[1] if pre else 0) if background else tb
 
 
 _ondemand = {"ts": 0.0}
@@ -659,7 +665,10 @@ def _process_one_image(db, iid, fp):
     # v3.68 Phase A: metadata + search index + pHash only — the thumbnail moved to
     # the Phase B backfill (and stays available on demand). Compute runs in a worker
     # PROCESS when the pool is up (GIL-free), in this thread otherwise.
-    payload = _dispatch_compute(fp, want_thumb=False)
+    # v4.83: except on a network share. There the read is the bottleneck, the
+    # bytes are already in hand, and the backfill would fetch the whole file over
+    # the NAS a second time to make the same thumbnail.
+    payload = _dispatch_compute(fp, want_thumb=_on_network(fp))
     if payload == "unreadable":
         # The file could not be opened at all. On a drive that has gone quiet
         # this is about to be true of every remaining image, so it is reported
