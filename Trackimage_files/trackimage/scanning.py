@@ -4,6 +4,7 @@ Layer 15 of 27 -- see trackimage/__init__.py for the order these load in.
 """
 from pathlib import Path
 import os
+import stat
 import threading
 import time as _time
 from . import state
@@ -53,9 +54,11 @@ def _autosync_load():
         pass
 
 
-def _incremental_sync():
-    """Dispatcher: sync only the exact paths the watcher reported; fall back to a
-    full diff-scan only when no specific paths were captured."""
+def _incremental_sync(catch_up=False):
+    """Dispatcher: sync only the exact paths the watcher reported. A full
+    diff-scan runs only for the catch-up after autosync is switched on: an empty
+    set otherwise means another round already took these paths -- not that
+    changes were lost -- and on a NAS the full walk stats every known file."""
     if not _AUTOSYNC["on"]:   # v3.61: autosync off -> drop watcher events, no auto folder updates
         with _watcher_changed_lock:
             _watcher_changed.clear()
@@ -65,7 +68,7 @@ def _incremental_sync():
         _watcher_changed.clear()
     if changed:
         _sync_paths(changed)
-    else:
+    elif catch_up:
         _full_sync()
 
 
@@ -96,7 +99,20 @@ def _sync_paths(paths):
             with _watcher_suppress_lock:
                 if filepath in _watcher_suppress: continue
             row = db.execute("SELECT id, file_date FROM images WHERE filepath=?", (filepath,)).fetchone()
-            if not os.path.isfile(filepath):
+            # v4.83: isfile() is also False for a share that timed out, and that is
+            # not a deletion. Only "not found" while the linked root still answers
+            # removes the row -- the root, not the parent, so a deleted subfolder
+            # still goes.
+            try:
+                _st = os.stat(filepath)
+            except FileNotFoundError:
+                if row and os.path.isdir(root):
+                    db.execute("DELETE FROM images WHERE id=?", (row["id"],))
+                    removed_count += 1
+                continue
+            except OSError:
+                continue
+            if not stat.S_ISREG(_st.st_mode):
                 if row:
                     db.execute("DELETE FROM images WHERE id=?", (row["id"],))
                     removed_count += 1
@@ -156,15 +172,14 @@ def _full_sync():
         ignore_words = {r["word"].lower() for r in db.execute("SELECT word FROM ignore_words").fetchall()}
         new_count, removed_count, modified_count = 0, 0, 0
         held = [0.0]
+        failed = []           # v4.83: folders that did not answer -- their rows are unknown, not gone
 
         for sf in scan_folders:
             root = Path(sf["path"])
             if not root.exists() or not root.is_dir():
+                failed.append(str(root))
                 continue
-            for dirpath, dirnames, filenames in os.walk(root):
-                _prune_dirs(dirpath, dirnames)      # v4.44
-                if _skip_dir(dirpath):
-                    continue
+            for dirpath, dirnames, filenames in _walk_dirs(root, onerror=lambda e, r=str(root): failed.append(e.filename or r)):
                 dirnames.sort()
                 rel_folder = os.path.relpath(dirpath, root)
                 display_folder = f"{root.name}\\{rel_folder}" if rel_folder != "." else root.name
@@ -199,14 +214,24 @@ def _full_sync():
                         continue
                     new_count += 1
 
-        # Remove DB entries for files that no longer exist
+        # Remove DB entries for files that no longer exist -- not those under a
+        # folder that could not be read, and not those of a root that was away:
+        # this used to delete every row of a NAS that was off when autosync was
+        # switched on, tags and ratings with them.
+        kept, n_kept = _kept_by(failed), 0
         for fp in list(existing.keys()):
             if fp not in found_paths:
+                if failed and kept(fp):
+                    n_kept += 1
+                    continue
                 with _watcher_suppress_lock:
                     if os.path.normpath(fp) in _watcher_suppress:
                         continue
                 db.execute("DELETE FROM images WHERE filepath=?", (fp,))
                 removed_count += 1
+        if n_kept:
+            log(f"Sync could not read every folder — {n_kept:,} image(s) kept "
+                f"that would otherwise have been removed", "warning")
 
         if new_count or removed_count or modified_count:
             db.execute("DELETE FROM characters WHERE id NOT IN (SELECT DISTINCT character_id FROM image_characters)")
@@ -225,9 +250,14 @@ def _full_sync():
         print(f"  ⚠ Auto-sync error: {e}")
 
 
-def _watcher_loop():
-    """Background thread: waits for dirty flag, debounces, then syncs."""
-    while state._watcher_running:
+_watcher_gen = [0]
+
+
+def _watcher_loop(gen=0):
+    """Background thread: waits for dirty flag, debounces, then syncs. A restart
+    starts a new loop; the old one sees its generation is over and leaves, so
+    two loops never take turns at the same changes."""
+    while state._watcher_running and gen == _watcher_gen[0]:
         _watcher_dirty.wait(timeout=5)
         if not _watcher_dirty.is_set():
             continue
@@ -296,7 +326,8 @@ def _start_watcher_impl():
         return
     state._watcher_running = True
     state._watcher_observer.start()
-    t = threading.Thread(target=_watcher_loop, daemon=True)
+    _watcher_gen[0] += 1
+    t = threading.Thread(target=_watcher_loop, args=(_watcher_gen[0],), daemon=True)
     t.start()
     print(f"  👁 Watching: {', '.join(watched)}")
     sse_notify("watcher_status", {"active": True})
@@ -310,6 +341,7 @@ def stop_watcher():
 
 def _stop_watcher_impl():
     state._watcher_running = False
+    _watcher_gen[0] += 1
     if state._watcher_observer:
         # v3.91: an observer that was created but never started raises
         # "cannot join thread before it is started". Belt and braces on top
@@ -421,16 +453,28 @@ def _own_test(root):
     return hit
 
 
-def _walk_dirs(root):
+def _walk_dirs(root, onerror=None):
     """os.walk over a linked folder, pruned as _prune_dirs() prunes, without a
     realpath per folder -- see _own_test()."""
     own = _own_test(root)
     if own and own(root):
         return
-    for dirpath, dirnames, filenames in os.walk(root):
+    for dirpath, dirnames, filenames in os.walk(root, onerror=onerror):
         dirnames[:] = [d for d in dirnames if d.lower() not in _SKIP_DIR_NAMES
                        and not (own and own(os.path.join(dirpath, d)))]
         yield dirpath, dirnames, filenames
+
+
+def _kept_by(failed):
+    """A test for rows under a folder the walk could not read. os.walk drops such
+    a folder without a word, and that silence looks exactly like deleted files --
+    on a busy NAS a listing that times out is ordinary, and it cost the rows,
+    tags and ratings of everything under it (v4.38's rule, per folder)."""
+    pre = [os.path.normcase(str(d)).rstrip("\\/") for d in failed]
+    def kept(fp):
+        k = os.path.normcase(fp)
+        return any(k == p or k.startswith(p + os.sep) for p in pre)
+    return kept
 
 
 def _skip_file(path):
@@ -462,10 +506,7 @@ def _scan_all_folders_impl():
         root = Path(sf["path"])
         if not root.exists(): continue
         cnt = 0
-        for dirpath, dirnames, filenames in os.walk(root):
-            _prune_dirs(dirpath, dirnames)          # v4.44
-            if _skip_dir(dirpath):
-                continue
+        for dirpath, dirnames, filenames in _walk_dirs(root):   # v4.44, v4.83
             cnt += sum(1 for fn in filenames if Path(fn).suffix.lower() in MEDIA_EXTENSIONS)
         folder_counts[sf["path"]] = cnt
 
@@ -490,6 +531,7 @@ def _scan_all_folders_impl():
     _held = [0.0]             # see _commit_if_held: the count alone let one write
                               # hold the lock across thousands of unchanged files
     _complete = True          # every configured folder was read to the end
+    _failed = []              # v4.83: and the folders inside them that did not answer
 
     def _save(force=False):
         _since[0] += 0 if force else 1
@@ -521,10 +563,7 @@ def _scan_all_folders_impl():
         state.scan_progress["folders"].append(fprog)
         processed = 0
 
-        for dirpath, dirnames, filenames in os.walk(root):
-            _prune_dirs(dirpath, dirnames)          # v4.44
-            if _skip_dir(dirpath):
-                continue
+        for dirpath, dirnames, filenames in _walk_dirs(root, onerror=lambda e, r=str(root): _failed.append(e.filename or r)):
             dirnames.sort()
             rel_folder = os.path.relpath(dirpath, root)
             if rel_folder == ".": rel_folder = "(Root)"
@@ -569,6 +608,13 @@ def _scan_all_folders_impl():
     # not the same thing. This is the failure that cost 5,000 images once; it is
     # not repeated on the strength of an interrupted walk.
     removed = set(existing.keys()) - all_found
+    if _failed and _complete:
+        _kept = _kept_by(_failed)
+        n_before = len(removed)
+        removed = {fp for fp in removed if not _kept(fp)}
+        if n_before > len(removed):
+            log(f"Scan could not read every folder — {n_before - len(removed)} image(s) kept "
+                f"that would otherwise have been removed", "warning")
     if not _complete:
         if removed:
             log(f"Scan did not reach every folder \u2014 {len(removed)} image(s) kept "
