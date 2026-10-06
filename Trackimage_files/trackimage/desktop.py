@@ -15,7 +15,6 @@ from .db import _cleanup_trash, _start_trash_janitor, get_db
 from .events import _shutdown_now
 from .thumbnails import _thumb_backfill_ensure_running
 from .processing import _proc, _proc_ensure_running, _proc_load_settings
-from .duplicates import _ensure_mem_pairs
 from .scanning import _AUTOSYNC, _autosync_load, _fix_oriented_sizes_async, _purge_own_folder_rows, _scan_orphans_async, _sweep_orphan_images, start_watcher
 from .network import _lan_ips, _net_cfg, _serve_on
 from .runtime import _replay_install_log, _run_pending_runtime_install, check_assets, check_venv
@@ -175,8 +174,10 @@ def main():
     # "unknown" and tagging stays off.
     _stage("starting the engines")
     _thumb_backfill_ensure_running()   # v3.68: fill any missing thumbnails in the background
-    _ensure_mem_pairs(_MEM_PAIR_MIN_THR)   # v3.71: pre-warm the duplicate pair cache at startup
-    _stage("warming the duplicate cache")
+    # v4.83: no duplicate pre-warm here. On a 151k library the compare takes every
+    # logical core for many minutes, and it ran exactly while the first screen was
+    # loading -- every Python callback the gallery query needs queued behind it.
+    # Duplicates computes on demand and shows its progress while it does.
     # v4.0: --browser forces the old behaviour even when pywebview is installed.
     # v4.25: the saved preference decides, unless --browser overrules it on the
     # command line. Set through Settings > Interface & Gallery.

@@ -133,6 +133,17 @@ def api_tags():
     if search:
         sc, sp = _search_conditions(search); conds.extend(sc); params.extend(sp)
     where = (" WHERE " + " AND ".join(conds)) if conds else ""
+    if not where:
+        # v4.83: (image_id, tag_id) is the key and image_tags cascades on delete, so
+        # with no filter neither DISTINCT nor the join to images changes a count --
+        # and leaving them out takes this from seconds to a fraction of one.
+        rows = db.execute("""
+            SELECT t.id, t.name, t.category, c.n AS image_count
+            FROM (SELECT tag_id, COUNT(*) AS n FROM image_tags GROUP BY tag_id) c
+            JOIN tags t ON t.id=c.tag_id
+            ORDER BY c.n DESC, t.name COLLATE NOCASE ASC""").fetchall()
+        return jsonify([{"id": r["id"], "name": _disp_tag(r["name"]), "category": r["category"],
+                         "image_count": r["image_count"]} for r in rows])
     rows = db.execute(f"""
         SELECT t.id, t.name, t.category, COUNT(DISTINCT it.image_id) as image_count
         FROM tags t

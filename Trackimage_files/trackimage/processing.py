@@ -737,7 +737,7 @@ def _proc_worker():
     # imported here, not at the top: processing loads before api_media, duplicates, tagger, and a
     # module cannot import from one that has not been built yet.
     from .api_media import _detail_name
-    from .duplicates import _ensure_mem_pairs, _mem_invalidate
+    from .duplicates import _mem_invalidate
     from .tagger import _tag_ensure_running
     _boost_thread_qos()   # v3.16: keep this worker off the E-cores (per-thread QoS)
     db = _get_thread_db()
@@ -825,10 +825,15 @@ def _proc_worker():
                 _proc["active"] = 0
                 _proc_notify(force=True)
                 if _proc["auto"]:
-                    _mem_invalidate()         # v3.66: hashes changed -> RAM pair cache recomputes on demand
+                    # v4.83: the pool also starts for a picture that was merely opened
+                    # and drains having done nothing; that threw the pair cache away
+                    # and started a full compare on every core each time. Only a run
+                    # that wrote something invalidates, and the compare waits until
+                    # Duplicates asks for it.
+                    if _proc.get("done"):
+                        _mem_invalidate()     # v3.66: hashes changed -> RAM pair cache recomputes on demand
                     _tag_ensure_running()     # v3.31: auto-tag freshly imported files
                     _thumb_backfill_ensure_running()   # v3.68: Phase B — thumbnail backfill
-                    _ensure_mem_pairs(_MEM_PAIR_MIN_THR)   # v3.71: pre-warm duplicate pairs (RAM)
 
 
 def _proc_ensure_running(reset_progress=False):

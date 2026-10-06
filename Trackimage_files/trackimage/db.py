@@ -194,6 +194,7 @@ def init_db():
                    "WHERE phash IS NOT NULL AND phash != ''")
         db.execute("CREATE INDEX IF NOT EXISTS idx_image_characters_char "
                    "ON image_characters(character_id)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_images_date ON images(file_date)")   # v4.83, see api_images
         db.commit()
     except Exception:
         pass

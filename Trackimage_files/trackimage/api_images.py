@@ -105,12 +105,21 @@ def api_images():
         q += f" ORDER BY natural_key(i.folder) {od}, natural_key(i.filename) ASC, i.file_date ASC"
     elif sort=="newest":
         # date > folder > name
+        # v4.83: unfiltered, the date index is named on purpose. Without it SQLite
+        # sorts the whole table and calls natural_key twice per row -- 300k Python
+        # callbacks per page on a 151k library, each queuing for the interpreter
+        # behind the background work. Walking the index stops after the page.
+        if not conds:
+            q = q.replace("FROM images i", "FROM images i INDEXED BY idx_images_date", 1)
         q += f" ORDER BY i.file_date {od}, natural_key(i.folder) ASC, natural_key(i.filename) ASC"
     else:
         # name > folder > date
         q += f" ORDER BY natural_key(i.filename) {od}, natural_key(i.folder) ASC, i.file_date ASC"
     q += " LIMIT ? OFFSET ?"; params.extend([per_page, offset])
-    rows = db.execute(q, params).fetchall()
+    try:
+        rows = db.execute(q, params).fetchall()
+    except sqlite3.OperationalError:          # no idx_images_date: init_db could not make it
+        rows = db.execute(q.replace(" INDEXED BY idx_images_date", ""), params).fetchall()
 
     images = []
     fph = filepath_hashes([r["filepath"] for r in rows])
@@ -998,13 +1007,9 @@ def api_bulk_copy():
 
 @app.route("/api/stats")
 def api_stats():
-    db = get_db()
-    ti = db.execute("SELECT COUNT(*) FROM images").fetchone()[0]
-    tc = db.execute("SELECT COUNT(DISTINCT REPLACE(LOWER(name),'_',' ')) FROM tags WHERE category='character'").fetchone()[0]
-    tf = db.execute("SELECT COUNT(DISTINCT folder) FROM images").fetchone()[0]
-    top_c = db.execute("SELECT MIN(t.name) as name,COUNT(DISTINCT it.image_id) as count FROM tags t JOIN image_tags it ON t.id=it.tag_id WHERE t.category='character' GROUP BY REPLACE(LOWER(t.name),'_',' ') ORDER BY count DESC LIMIT 20").fetchall()
-    top_f = db.execute("SELECT folder,COUNT(*) as count FROM images GROUP BY folder ORDER BY count DESC LIMIT 20").fetchall()
-    cdist = db.execute("SELECT char_count,COUNT(*) as image_count FROM (SELECT i.id,COUNT(DISTINCT CASE WHEN t.category='character' THEN REPLACE(LOWER(t.name),'_',' ') END) as char_count FROM images i LEFT JOIN image_tags it ON i.id=it.image_id LEFT JOIN tags t ON it.tag_id=t.id GROUP BY i.id) GROUP BY char_count ORDER BY char_count").fetchall()
-    return jsonify({"total_images": ti, "total_characters": tc, "total_folders": tf,
-        "top_characters": [{"name": _disp_char(r["name"]), "count": r["count"]} for r in top_c], "top_folders": [dict(r) for r in top_f],
-        "char_distribution": [dict(r) for r in cdist]})
+    # v4.83: the page reads total_images and nothing else. The character, folder
+    # and distribution figures beside it were never shown and cost seconds on a
+    # large library -- a join over every tag row -- on every start, every delete
+    # and every auto-sync, all of which waited for this answer.
+    return jsonify({"total_images": get_db().execute("SELECT COUNT(*) FROM images").fetchone()[0]})
+
