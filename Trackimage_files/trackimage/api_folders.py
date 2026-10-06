@@ -25,7 +25,7 @@ from .metadata import find_sidecar, move_sidecar_with
 from .processing import _proc, _proc_ensure_running, _proc_save_setting, _unlink_progress
 from .tagger import _tag_ensure_running, _tag_save_cfg
 from .duplicates import _mem_invalidate
-from .scanning import _AUTOSYNC, _incremental_sync, _orphan_ids, _orphan_notice, _prune_dirs, _skip_dir, _sync_paths, _wipe_images_by_ids, restart_watcher, scan_all_folders, start_watcher, stop_watcher
+from .scanning import _AUTOSYNC, _incremental_sync, _orphan_ids, _orphan_notice, _sync_paths, _walk_dirs, _wipe_images_by_ids, restart_watcher, scan_all_folders, start_watcher, stop_watcher
 from .picker import _PICKER_CODE_TK, _PICKER_CODE_WIN, _picker_env, _run_picker
 from .importing import _claim_native, _library_row_for_path, _native_claims, _native_drop, _native_drop_lock, _paths_for_ids, _report_import_dupes, clipboard_image_png, clipboard_read
 from .network import _is_local_request
@@ -212,8 +212,7 @@ def api_refresh_folder():
     if not root or not os.path.isdir(root):
         return jsonify({"error": "Folder not found on disk"}), 404
     paths = set()
-    for dirpath, _dirs, files in os.walk(root):
-        _prune_dirs(dirpath, _dirs)                 # v4.44
+    for dirpath, _dirs, files in _walk_dirs(root):   # v4.44, v4.83
         for f in files:
             if os.path.splitext(f)[1].lower() in MEDIA_EXTENSIONS:
                 paths.add(os.path.join(dirpath, f))
@@ -348,6 +347,7 @@ def api_create_folder():
     if os.path.exists(new_path): return jsonify({"error": "Folder already exists"}), 409
     try: os.makedirs(new_path, exist_ok=True)
     except OSError as e: return jsonify({"error": str(e)}), 500
+    _folder_tree_changed(made=(parent if parent else Path(real_parent).name) + "\\" + name)
     return jsonify({"ok": True, "path": new_path})
 
 
@@ -381,6 +381,7 @@ def api_delete_folder():
     _mem_invalidate()   # v3.66: images removed -> RAM pair cache recomputes on demand
     _db_commit_retry(db)
     start_watcher()
+    _folder_tree_changed(gone=[folder])
     return jsonify({"ok": True, "deleted_files": file_count})
 
 
@@ -422,6 +423,7 @@ def api_bulk_delete_folders():
     _mem_invalidate()   # v3.66: images removed -> RAM pair cache recomputes on demand
     _db_commit_retry(db)
     start_watcher()
+    _folder_tree_changed(gone=deleted)
     return jsonify({"ok": True, "deleted": deleted, "deleted_files": total_files, "errors": errors})
 
 
@@ -840,8 +842,7 @@ def api_import_targets():
             continue
         rn = Path(root).name
         out.append({"display": rn, "path": root})
-        for dirpath, dirnames, _fn in os.walk(root):
-            _prune_dirs(dirpath, dirnames)          # v4.44
+        for dirpath, dirnames, _fn in _walk_dirs(root):   # v4.44, v4.83
             dirnames.sort()
             for d in dirnames:
                 full = os.path.join(dirpath, d)
@@ -916,6 +917,7 @@ def api_bulk_move_folders():
             errors.append(f"{display}: {e}")
     _db_commit_retry(db)
     start_watcher()
+    _folder_tree_changed(gone=moved)
     return jsonify({"ok": True, "moved": moved, "errors": errors})
 
 
@@ -971,7 +973,66 @@ def api_rename_folder():
     if is_root:
         db.execute("UPDATE scan_folders SET path=?, label=? WHERE path=?", (new_path, new_name, real_path))
     db.commit()
+    _folder_tree_changed(gone=[folder], made=new_display_base)
     return jsonify({"ok": True})
+
+
+# v4.83: the sidebar also lists folders that hold no picture yet, and finding
+# those meant walking every linked folder -- on every /api/folders, which the
+# first screen waits for and every auto-sync asks again. On a NAS that walk took
+# ten minutes, and the window stayed black for all of them. A network root is
+# walked in the background now and remembered: the list answers from the
+# database at once, and the sidebar fills in the empty folders when the walk
+# reports back (the "folders" event). A local root is still walked on the spot;
+# that is quick, and a folder made a moment ago shows straight away.
+_tree = {"dirs": {}, "at": {}, "busy": set()}
+_tree_lock = threading.Lock()
+_TREE_TTL = 600
+
+
+def _root_tree(root):
+    """Every folder under one linked root, as the sidebar names them."""
+    name, out = Path(root).name, set()
+    for dirpath, dirnames, filenames in _walk_dirs(root):
+        rel = os.path.relpath(dirpath, root)
+        out.add(name + "\\" + rel if rel != "." else name)
+    return out
+
+
+def _tree_walk_later(root):
+    with _tree_lock:
+        if root in _tree["busy"]:
+            return
+        _tree["busy"].add(root)
+
+    def _run():
+        try:
+            names = _root_tree(root) if os.path.isdir(root) else set()
+            with _tree_lock:
+                changed = names != _tree["dirs"].get(root)
+                _tree["dirs"][root] = names
+                _tree["at"][root] = _time.time()
+            if changed:
+                sse_notify("folders", {})
+        except Exception as e:
+            log(f"Could not list the folders under {root}: {type(e).__name__}", "warning")
+        finally:
+            with _tree_lock:
+                _tree["busy"].discard(root)
+    threading.Thread(target=_run, daemon=True, name="folder-tree").start()
+
+
+def _folder_tree_changed(gone=(), made=None):
+    """After a folder operation: forget what went away, show what was made, and
+    have the next /api/folders walk the network roots again."""
+    gone = [g for g in gone if g]
+    with _tree_lock:
+        for root, names in _tree["dirs"].items():
+            names = {n for n in names if not any(n == g or n.startswith((g + "\\", g + "/")) for g in gone)}
+            if made and made.split("\\", 1)[0] == Path(root).name:
+                names.add(made)
+            _tree["dirs"][root] = names
+        _tree["at"].clear()
 
 
 @app.route("/api/folders")
@@ -982,15 +1043,18 @@ def api_folders():
     # Also include empty directories from scan roots
     scan_roots = db.execute("SELECT path FROM scan_folders").fetchall()
     for sf in scan_roots:
-        root = Path(sf["path"])
-        if not root.exists(): continue
-        for dirpath, dirnames, filenames in os.walk(root):
-            _prune_dirs(dirpath, dirnames)          # v4.44
-            if _skip_dir(dirpath):
-                continue
-            dirnames.sort()
-            rel = os.path.relpath(dirpath, root)
-            display = f"{root.name}\\{rel}" if rel != "." else root.name
+        root = sf["path"]
+        if _is_network_path(root):
+            with _tree_lock:
+                names = set(_tree["dirs"].get(root) or ())
+                fresh = _time.time() - _tree["at"].get(root, 0) < _TREE_TTL
+            if not fresh:
+                _tree_walk_later(root)
+        elif os.path.isdir(root):
+            names = _root_tree(root)
+        else:
+            continue
+        for display in names:
             if display not in result:
                 result[display] = 0
     return jsonify([{"folder": k, "image_count": v} for k, v in sorted(result.items(), key=lambda x: _natural_sort_key(x[0]))])

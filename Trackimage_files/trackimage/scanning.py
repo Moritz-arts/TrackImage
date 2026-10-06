@@ -396,6 +396,43 @@ def _prune_dirs(dirpath, dirnames):
     dirnames[:] = keep
 
 
+def _own_test(root):
+    """A test for "is this folder one of TrackImage's own" that does not ask the
+    disk per folder. _skip_dir() resolves every folder it is shown with realpath,
+    which on Windows opens it -- a network round trip per folder on a NAS. The
+    root is resolved once here and a folder under it is mapped onto that as
+    text. None when no folder of TrackImage's lies under the root at all, which
+    is the usual case and needs no test."""
+    try:
+        r = os.path.normcase(root).rstrip("\\/")
+        real = os.path.normcase(os.path.realpath(root)).rstrip("\\/")
+    except Exception:
+        return _skip_dir
+    inside = [o for o in _OWN_DIRS if o == real or o.startswith(real + os.sep)]
+    if not inside:
+        return None
+
+    def hit(path):
+        k = os.path.normcase(path)
+        if not (k == r or k.startswith(r + os.sep)):
+            return _skip_dir(path)
+        m = real + k[len(r):]
+        return any(m == o or m.startswith(o + os.sep) for o in inside)
+    return hit
+
+
+def _walk_dirs(root):
+    """os.walk over a linked folder, pruned as _prune_dirs() prunes, without a
+    realpath per folder -- see _own_test()."""
+    own = _own_test(root)
+    if own and own(root):
+        return
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d.lower() not in _SKIP_DIR_NAMES
+                       and not (own and own(os.path.join(dirpath, d)))]
+        yield dirpath, dirnames, filenames
+
+
 def _skip_file(path):
     """True when a single path lies somewhere a scan must not read. Used by the
     watcher, which is handed paths rather than walking them."""
