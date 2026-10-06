@@ -127,8 +127,11 @@ def _proc_counts(db):
     done as two separate COUNTs let an image flip between them mid-read, making
     the total flicker by 1; a single statement is consistent."""
     try:
-        row = db.execute("SELECT COUNT(*), COALESCE(SUM(meta_done),0) FROM images").fetchone()
-        return int(row[0]), int(row[1])
+        # v4.83: two subqueries of one statement -- one snapshot -- and the second
+        # reads the small idx_images_pending instead of the whole table.
+        row = db.execute("SELECT (SELECT COUNT(*) FROM images), "
+                         "(SELECT COUNT(*) FROM images WHERE meta_done=0)").fetchone()
+        return int(row[0]), int(row[0]) - int(row[1])
     except:
         return 0, 0
 
@@ -197,7 +200,7 @@ def _proc_progress_payload(db=None):
         "workers_eff": max(1, min(_MAX_WORKERS, int(_proc.get("workers") or _AUTO_WORKERS))),
         "scan": _scan, "pairs": _pairs, "unlink": _ul, "thumbs": _thumbs,
         "mp": {"procs": _mp_target_procs(), "auto": _mp_configured() <= 0, "max": _MAX_WORKERS},
-        "net_reads": _net_gate.n, "net_reads_max": _NET_READS_MAX,
+        "net_reads": _net_gate.n, "net_reads_max": _NET_READS_MAX, "net_all": _net_force[0],
     }
 
 
@@ -513,10 +516,16 @@ _NET_READS_DEFAULT = 2
 _NET_READS_MAX = 16
 _net_gate = _ReadGate(_NET_READS_DEFAULT)
 _net_drive = {}
+_net_force = [False]       # v4.83: Settings > Processing: "treat every linked folder as network"
 
 
 def _on_network(fp):
-    """_is_network_path() once per drive or share, not once per file."""
+    """_is_network_path() once per drive or share, not once per file. Windows
+    names a drive remote only when it is mapped as one; an encrypted volume or a
+    vault kept on a NAS reports itself as a local disk, and only the user can say
+    otherwise -- hence _net_force."""
+    if _net_force[0]:
+        return True
     d = os.path.splitdrive(fp)[0].lower()
     if not d:
         return _is_network_path(fp)          # no drive to remember: a string test
@@ -552,9 +561,18 @@ def _net_reads_load():
     try:
         db = _get_thread_db()
         r = db.execute("SELECT value FROM config WHERE key='net_reads'").fetchone()
+        f = db.execute("SELECT value FROM config WHERE key='net_all'").fetchone()
+        roots = [x["path"] for x in db.execute("SELECT path FROM scan_folders").fetchall()]
         db.close()
         if r and str(r["value"]).strip():
             _net_gate.resize(max(1, min(_NET_READS_MAX, int(r["value"]))))
+        _net_force[0] = bool(f and str(f["value"]) == "1")
+        # v4.83: said once per start, so the next report from a NAS shows whether
+        # the network protections apply to it at all.
+        for p in roots:
+            log(f"Linked folder {p}: " + (
+                f"network — {_net_gate.n} read(s) at a time" + (" (set in Settings)" if _net_force[0] else "")
+                if _on_network(p) else "local drive"))
     except Exception:
         pass
 

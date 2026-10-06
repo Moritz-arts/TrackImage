@@ -293,12 +293,17 @@ def detect_media_type(filepath):
         return "video"
     if ext in GIF_EXTENSIONS:
         return "gif"
-    if ext == ".webp" and HAS_PILLOW:
+    if ext == ".webp":
+        # v4.83: Pillow reads the WHOLE file to answer n_frames, so discovery --
+        # meant to touch nothing but the directory listing -- read every new WebP
+        # in full, and on a NAS Phase A then read it again. An animated WebP says
+        # so in bit 1 of byte 20, the flags of its VP8X chunk.
         try:
-            with Image.open(filepath) as img:
-                if getattr(img, 'n_frames', 1) > 1:
-                    return "gif"
-        except:
+            with open(filepath, "rb") as f:
+                h = f.read(21)
+            if len(h) == 21 and h[:4] == b"RIFF" and h[8:16] == b"WEBPVP8X" and h[20] & 0x02:
+                return "gif"
+        except OSError:
             pass
     return "image"
 

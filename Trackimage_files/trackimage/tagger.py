@@ -638,8 +638,9 @@ def _tag_load_image(db, iid, fp, mt):
 
 def _tag_counts(db):
     try:
-        row = db.execute("SELECT COUNT(*), COALESCE(SUM(tagged),0) FROM images").fetchone()
-        return int(row[0]), int(row[1])
+        row = db.execute("SELECT (SELECT COUNT(*) FROM images), "      # see _proc_counts
+                         "(SELECT COUNT(*) FROM images WHERE tagged=0)").fetchone()
+        return int(row[0]), int(row[0]) - int(row[1])
     except Exception:
         return 0, 0
 

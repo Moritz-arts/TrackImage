@@ -512,6 +512,7 @@ var procCard=sCard('Background processing','New pictures appear straight away. T
     +sSlider('Compute processes','<span id="mp-procs-val">'+mpLab+'</span>',_wSlider('mp-procs','mp-procs-val',mpLab,2,mpProcs,'onMpWorkers'),'Do the actual work, one per processor core. Each needs about 100 MB of memory.')
     +sSlider('Thumbnail workers','<span id="tw-val">'+twLab+'</span>',_wSlider('tw-procs','tw-val',twLab,1,twPos,'onTwWorkers'),'For making thumbnails in the background. Always gives way to imports and to what you are looking at.')
     +sSlider('Network folders','<span id="nr-val">'+nrLabel(proc.net_reads||2)+'</span>','<input id="nr-reads" type="range" min="1" max="'+(proc.net_reads_max||16)+'" step="1" value="'+(proc.net_reads||2)+'" oninput="var e=document.getElementById(\'nr-val\');if(e)e.textContent=nrLabel(+this.value)" onchange="onNetReads()">','How many files are read from a NAS or network share at once. A slow share gets no faster with more &mdash; it jams, and other programs on it have to wait.')
+    +sRow('Treat every linked folder as a network folder','For a NAS that Windows reports as a local drive &mdash; an encrypted volume or a mounted vault. The console names what each folder was taken for at start.',sSwitch('id="net-all"',!!proc.net_all,'onNetAll(this.checked)'))
   +'</div></div>');
 
 var tg=_s[6]||{};S._tag=tg;

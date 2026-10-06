@@ -22,7 +22,7 @@ from .db import _db_commit_retry, _db_write_lock, _folder_op_lock, _get_thread_d
 from .events import sse_notify
 from .media import _free_filename, _safe_dropped_name, get_file_date, resolve_display_folder
 from .metadata import find_sidecar, move_sidecar_with
-from .processing import _proc, _proc_ensure_running, _proc_save_setting, _unlink_progress
+from .processing import _on_network, _proc, _proc_ensure_running, _proc_save_setting, _unlink_progress
 from .tagger import _tag_ensure_running, _tag_save_cfg
 from .duplicates import _mem_invalidate
 from .scanning import _AUTOSYNC, _incremental_sync, _orphan_ids, _orphan_notice, _sync_paths, _walk_dirs, _wipe_images_by_ids, restart_watcher, scan_all_folders, start_watcher, stop_watcher
@@ -1044,7 +1044,7 @@ def api_folders():
     scan_roots = db.execute("SELECT path FROM scan_folders").fetchall()
     for sf in scan_roots:
         root = sf["path"]
-        if _is_network_path(root):
+        if _on_network(root):
             with _tree_lock:
                 names = set(_tree["dirs"].get(root) or ())
                 fresh = _time.time() - _tree["at"].get(root, 0) < _TREE_TTL
