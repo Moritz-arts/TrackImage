@@ -197,7 +197,7 @@ def api_autosync():
         _proc_save_setting("proc_auto", "1" if on else "0")
         _tag_save_cfg("tag_enabled", "1" if on else "0")
         if on:
-            threading.Thread(target=_incremental_sync, daemon=True).start()  # catch up
+            threading.Thread(target=_incremental_sync, kwargs={"catch_up": True}, daemon=True).start()  # catch up
             _proc_ensure_running(reset_progress=False)
             _tag_ensure_running()
     return jsonify({"on": _AUTOSYNC["on"]})
