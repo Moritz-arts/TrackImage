@@ -250,6 +250,16 @@ def init_db():
             db.execute("ALTER TABLE images ADD COLUMN tagged INTEGER DEFAULT 0")
             db.commit()
     except: pass
+    # v4.83: the progress counts behind every status poll were SUM()s over the
+    # whole images table -- up to four times per 1.2 s -- and the work queues'
+    # "meta_done=0 AND id > ?" walked every finished row before the first pending
+    # one. A partial index holds only the rows still owed work.
+    try:
+        db.execute("CREATE INDEX IF NOT EXISTS idx_images_pending ON images(id) WHERE meta_done=0")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_images_untagged ON images(id) WHERE tagged=0")
+        db.commit()
+    except Exception:
+        pass
     # v3.78: drop stale "questionable" ratings. Before this version the tagger
     # wrote all four rating levels per image; questionable is no longer emitted
     # at all (it is resolved to sensitive/explicit), so any row carrying it is

@@ -522,10 +522,11 @@ def _scan_all_folders_impl():
     # Work is saved every SCAN_COMMIT files now; an interrupted scan costs at
     # most the last few hundred, and the next run picks the rest up.
     #
-    # The checkpoint on each save writes the WAL back into the .db straight
-    # away, so the file on disk is current rather than a stub with a growing
-    # sidecar next to it. Measured at 30,000 rows it costs nothing next to
-    # walking the folders themselves.
+    # The checkpoint on each save folds the WAL back into the .db as far as
+    # readers allow, so the file on disk stays current; the shutdown checkpoint
+    # truncates it. v4.83: PASSIVE, not TRUNCATE -- TRUNCATE takes the write lock
+    # and then waits for every reader to leave the WAL, so each save held the
+    # pool, thumbnail stores and a rating behind the busy timeout.
     SCAN_COMMIT = 500
     _since = [0]
     _held = [0.0]             # see _commit_if_held: the count alone let one write
@@ -540,7 +541,7 @@ def _scan_all_folders_impl():
         _since[0] = 0
         _db_commit_retry(db)
         try:
-            db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            db.execute("PRAGMA wal_checkpoint(PASSIVE)")
         except Exception:
             pass          # a reader holding the WAL is normal; the next one gets it
 
