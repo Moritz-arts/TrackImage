@@ -14,7 +14,7 @@ from . import state
 from .config import Image, VIDEO_EXTENSIONS, _AUTO_SHARE, _AUTO_WORKERS, _CLAIM_PAGE, _CPU_COUNT, _DEFAULT_WORKERS, _MAX_WORKERS, _MEM_PAIR_MIN_THR, _ensure_std_streams
 from .logging_setup import log, log_detail
 from .platform_bits import _Unreachable, _boost_process_priority, _boost_thread_qos, _is_network_path
-from .db import _db_commit_retry, _db_write_lock, _get_thread_db, extract_search_text, get_db
+from .db import _db_commit_retry, _db_write_lock, _get_thread_db, _rollback, extract_search_text, get_db
 from .events import sse_notify
 from .metadata import extract_metadata
 from .hashing import compute_hashes
@@ -219,6 +219,7 @@ def _proc_notify(force=False):
 def _claim_next(db):
     """Return (image_id, filepath) for the next unit of work, or (None, None).
     Priority queue is drained first, then the background backlog."""
+    _rollback(db)          # a write that failed on this connection must not pin it
     # 1) priority (user-requested)
     with _proc_prio_lock:
         prio_ids = []
@@ -621,6 +622,7 @@ def _process_one_image(db, iid, fp):
                     _db_commit_retry(db)
             return True
         except Exception:
+            _rollback(db)
             return False
 
     if is_video:
@@ -640,15 +642,18 @@ def _process_one_image(db, iid, fp):
                 chk = db.execute("SELECT filepath FROM images WHERE id=?", (iid,)).fetchone()
                 if not chk or chk["filepath"] != fp:
                     return True  # row gone/renamed -> nothing to do
+                # v4.83: with its size, which extract_metadata already has -- without
+                # it every video was stat'ed again on each visit to Duplicates.
                 db.execute("UPDATE images SET width=?, height=?, search_text=?, "
-                           "tile_sig=?, meta_done=1 WHERE id=?",
-                           (w, h, st, sqlite3.Binary(b""), iid))
+                           "tile_sig=?, file_size=?, meta_done=1 WHERE id=?",
+                           (w, h, st, sqlite3.Binary(b""), int(meta.get("file_size") or 0), iid))
                 if _embedded_tags_on():
                     _apply_embedded_keywords(db, iid, meta)
                 _db_commit_retry(db)
             sse_notify("processed", {"id": iid})
             return True
         except Exception:
+            _rollback(db)
             return False
 
     # v3.68 Phase A: metadata + search index + pHash only — the thumbnail moved to
@@ -667,6 +672,15 @@ def _process_one_image(db, iid, fp):
     thumb = payload["thumb"]; src_mtime = payload["mtime"]
     tsig = payload.get("ts"); fsz = int(payload.get("fs") or 0)   # v3.73
     _t2 = _time.perf_counter()
+    # v4.83: read before the lock, not inside it. This re-reads the file, and on a
+    # NAS that held every other writer -- the on-demand thumbnail the user is
+    # waiting for included -- for as long as the share took to answer.
+    emb = None
+    if _embedded_tags_on():
+        try:
+            emb = extract_metadata(fp)
+        except Exception:
+            emb = None
 
     try:
         with _db_write_lock:
@@ -680,9 +694,9 @@ def _process_one_image(db, iid, fp):
             # v4.53: keywords a photo already carries, when asked for. Read here
             # rather than in the worker process, which returns only what it can
             # pickle and never saw the metadata dictionary.
-            if _embedded_tags_on():
+            if emb is not None:
                 try:
-                    _apply_embedded_keywords(db, iid, extract_metadata(fp))
+                    _apply_embedded_keywords(db, iid, emb)
                 except Exception:
                     pass
             if thumb:
@@ -695,6 +709,7 @@ def _process_one_image(db, iid, fp):
         sse_notify("processed", {"id": iid})
         return True
     except Exception:
+        _rollback(db)
         return False
 
 
@@ -978,4 +993,4 @@ def _mark_hash_fail(db, iid):
             db.execute("UPDATE images SET hash_fail=1 WHERE id=?", (iid,))
             _db_commit_retry(db)
     except Exception:
-        pass
+        _rollback(db)

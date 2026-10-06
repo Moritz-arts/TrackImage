@@ -21,7 +21,7 @@ from .updater import (check_for_update, start_install, status as update_status,
                        auto_check_enabled, set_auto_check, is_configured,
                        channel as update_channel, set_channel as set_update_channel,
                        CHANNELS, GITHUB_OWNER, GITHUB_REPO)
-from .db import _db_commit_retry, _db_file_bytes, _db_write_lock, _get_thread_db, _vacuum, _vacuum_run, get_db
+from .db import _db_commit_retry, _db_file_bytes, _db_write_lock, _get_thread_db, _vacuum, _vacuum_run, get_db, _rollback
 from .events import _active_tabs, _cancel_shutdown_timer, _check_shutdown, _restart_self, _tabs_lock, sse_clients, sse_lock
 from .thumbnails import _thumb_cfg, _thumb_regen, _thumb_regen_worker, _thumb_target_workers, _thumb_workers_cfg
 from .processing import _dispatch_compute, _hash_gaveup, _hash_progress, _mark_hash_fail, _mp_configured, _mp_set_workers, _mp_target_procs, _net_gate, _NET_READS_MAX, _power_state, _proc, _proc_ensure_running, _proc_lock, _proc_notify, _proc_progress_payload, _proc_save_setting, _proc_stop
@@ -793,18 +793,25 @@ def api_compute_hashes():
             # but still missing a hash). This avoids two writers racing the same rows.
             # v3.73: cheap file_size back-fill first (stat only, no decode) --
             # covers videos too, which never get a pHash.
+            #
+            # v4.83: sizes first, writes afterwards. The UPDATE used to sit between
+            # the stats, so its implicit BEGIN held SQLite's write lock across one
+            # NAS round trip per row -- up to the whole library on a fresh one --
+            # and the pool, /thumb and every edit failed with "database is locked"
+            # meanwhile. meta_done=0 rows are the pool's: it writes their size itself.
             try:
-                _fsrows = db.execute("SELECT id,filepath FROM images WHERE file_size IS NULL OR file_size=0").fetchall()
-                if _fsrows:
-                    for _fr in _fsrows:
-                        try: _sz = os.path.getsize(_fr["filepath"])
-                        except Exception: continue
-                        with _db_write_lock:
-                            db.execute("UPDATE images SET file_size=? WHERE id=?", (_sz, _fr["id"]))
+                _fsrows = db.execute("SELECT id,filepath FROM images WHERE meta_done=1 "
+                                     "AND (file_size IS NULL OR file_size=0)").fetchall()
+                _szs = []
+                for _fr in _fsrows:
+                    try: _szs.append((os.path.getsize(_fr["filepath"]), _fr["id"]))
+                    except Exception: continue
+                for k in range(0, len(_szs), 500):
                     with _db_write_lock:
+                        db.executemany("UPDATE images SET file_size=? WHERE id=?", _szs[k:k + 500])
                         _db_commit_retry(db)
             except Exception:
-                pass
+                _rollback(db)
             # v3.73: rows with a pHash but no region signature are re-decoded once
             # so the region score becomes available for the existing library.
             # v3.80: videos are excluded by media_type (the old hard-coded list of
@@ -835,6 +842,7 @@ def api_compute_hashes():
                     else:
                         _mark_hash_fail(db, r["id"])
                 except Exception:
+                    _rollback(db)
                     _mark_hash_fail(db, r["id"])
             _hash_progress["active"] = False
             if _new:
