@@ -19,7 +19,7 @@ mkdir -p Userdata/Logs Userdata/Database
 
 echo ""
 echo "  ========================================"
-echo "   TrackImage v4.82 - Setup & Start (macOS)"
+echo "   TrackImage v4.83 - Setup & Start (macOS)"
 echo "  ========================================"
 echo ""
 

@@ -5,6 +5,17 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.83 — 2026-10-08
+
+- Window opens at once on a NAS library: the folder list no longer walks the whole share first
+- The window draws at once and fills in; the gallery no longer waits for the sidebar lists
+- A NAS folder that does not answer is no longer taken for deleted
+- Opening Duplicates no longer locks the database while it asks the NAS for file sizes
+- Network folders: each picture is read from the NAS once, not three or four times
+- Smaller NAS costs: WebP discovery reads 21 bytes, status polls use an index, folders can be marked as network
+- Review fixes: folder list stays right during a slow NAS walk, first page survives a page change
+- Late start-up answers no longer overwrite a folder or sort opened meanwhile; folder list stays current on a NAS
+
 ## v4.82 — 2026-10-05
 
 - Start: a large library on a NAS no longer keeps the window from opening for an hour
