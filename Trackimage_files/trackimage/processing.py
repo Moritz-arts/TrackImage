@@ -3,6 +3,7 @@
 Layer 12 of 27 -- see trackimage/__init__.py for the order these load in.
 """
 from collections import deque
+from contextlib import nullcontext
 from io import BytesIO
 from pathlib import Path
 import os
@@ -705,7 +706,8 @@ def _process_one_image(db, iid, fp):
     emb = None
     if _embedded_tags_on():
         try:
-            emb = extract_metadata(fp)
+            with (_net_gate if _on_network(fp) else nullcontext()):    # a second read: on a share, through the gate
+                emb = extract_metadata(fp)
         except Exception:
             emb = None
 

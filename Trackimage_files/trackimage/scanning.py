@@ -440,6 +440,8 @@ def _own_test(root):
         real = os.path.normcase(os.path.realpath(root)).rstrip("\\/")
     except Exception:
         return _skip_dir
+    if any(real.startswith(o + os.sep) for o in _OWN_DIRS):
+        return lambda path: True      # the root itself lies inside TrackImage's own folders
     inside = [o for o in _OWN_DIRS if o == real or o.startswith(real + os.sep)]
     if not inside:
         return None

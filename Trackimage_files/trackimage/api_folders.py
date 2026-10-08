@@ -147,6 +147,7 @@ def api_scan_folders():
                 db.execute("INSERT OR IGNORE INTO scan_folders (path, label) VALUES (?,?)", (path, label))
                 _db_commit_retry(db)
             restart_watcher()
+            _folder_tree_changed(refresh=True)   # a root linked again must not be served its old list
             return jsonify({"ok": True})
         finally:
             _folder_op_lock.release()
@@ -178,7 +179,9 @@ def api_delete_scan_folder(folder_id):
 @app.route("/api/scan", methods=["POST"])
 @folder_op
 def api_scan():
-    return jsonify(scan_all_folders())
+    r = scan_all_folders()
+    _folder_tree_changed(refresh=True)     # Rescan means "look at the disk again", for the sidebar too
+    return jsonify(r)
 
 
 @app.route("/api/scan-progress")
@@ -224,6 +227,7 @@ def api_refresh_folder():
         _sync_paths(pl)
         _proc_ensure_running(reset_progress=False)   # one catch-up pass
         if _AUTOSYNC["on"]: _tag_ensure_running()
+    _folder_tree_changed(refresh=True)
     threading.Thread(target=_run, args=(sorted(paths),), daemon=True).start()
     return jsonify({"ok": True, "checked": len(paths)})
 
@@ -973,6 +977,12 @@ def api_rename_folder():
     if is_root:
         db.execute("UPDATE scan_folders SET path=?, label=? WHERE path=?", (new_path, new_name, real_path))
     db.commit()
+    if is_root:
+        # the remembered folders are keyed by the root's path, which scan_folders now names new_path
+        with _tree_lock:
+            if real_path in _tree["dirs"]:
+                _tree["dirs"][new_path] = _tree["dirs"].pop(real_path)
+                _tree["at"][new_path] = _tree["at"].pop(real_path, 0)
     _folder_tree_changed(moved={folder: new_display_base})
     return jsonify({"ok": True})
 
@@ -985,7 +995,7 @@ def api_rename_folder():
 # database at once, and the sidebar fills in the empty folders when the walk
 # reports back (the "folders" event). A local root is still walked on the spot;
 # that is quick, and a folder made a moment ago shows straight away.
-_tree = {"dirs": {}, "at": {}, "busy": set(), "gen": 0}
+_tree = {"dirs": {}, "at": {}, "busy": set(), "log": []}
 _tree_lock = threading.Lock()
 _TREE_TTL = 600
 
@@ -1000,33 +1010,56 @@ def _root_tree(root, failed=None):
     return out
 
 
+def _tree_edit(root, names, edit):
+    """One folder operation applied to one root's remembered folders: what went
+    away is dropped, what moved is carried with everything under it, what was
+    made is added."""
+    gone, made, moved = edit
+    under = lambda n, g: n == g or n.startswith((g + "\\", g + "/"))
+    names = set(names or ())
+    for old, new in (moved or {}).items():
+        sub = {n for n in names if under(n, old)}
+        names = (names - sub) | {new + n[len(old):] for n in sub}
+    names = {n for n in names if not any(under(n, g) for g in gone)}
+    if made and made.split("\\", 1)[0] == Path(root).name:
+        names.add(made)
+    return names
+
+
 def _tree_walk_later(root):
     with _tree_lock:
         if root in _tree["busy"]:
             return
         _tree["busy"].add(root)
-        gen0 = _tree["gen"]
+        start = len(_tree["log"])
 
     def _run():
-        again = changed = False
+        changed = False
         try:
             if not os.path.isdir(root):
                 return            # a share that does not answer is not an empty one: keep what was known
             failed = []
             names = _root_tree(root, failed)
             with _tree_lock:
-                # A folder operation while this walk ran is newer than its listing:
-                # keep that edit and walk again, rather than put back what was
-                # deleted or take away what was just made.
-                again = _tree["gen"] != gen0
-                if not again:
-                    old = _tree["dirs"].get(root)
-                    if failed:
-                        names |= old or set()     # a listing that failed lost nothing
-                    changed = names != old
-                    _tree["dirs"][root] = names
-                    if not failed:
-                        _tree["at"][root] = _time.time()
+                # Folder operations made while this walk ran are newer than its
+                # listing, so they are replayed over it. Throwing the walk away
+                # instead meant that on a NAS, where one takes minutes, a user
+                # who touched a folder now and then never got a result at all.
+                for e in _tree["log"][start:]:
+                    names = _tree_edit(root, names, e)
+                old = _tree["dirs"].get(root)
+                if failed:
+                    # only what lies under a folder that could not be listed is kept
+                    nm = Path(root).name
+                    fd = [nm if r == "." else nm + "\\" + r
+                          for r in (os.path.relpath(f, root) for f in failed)]
+                    names |= {n for n in (old or ()) if any(
+                        n == d or n.startswith((d + "\\", d + "/")) for d in fd)}
+                changed = names != old
+                _tree["dirs"][root] = names
+                # a walk that could not read everything is tried again in a minute,
+                # not on every /api/folders
+                _tree["at"][root] = _time.time() - (_TREE_TTL - 60 if failed else 0)
             if changed:
                 sse_notify("folders", {})
         except Exception as e:
@@ -1034,30 +1067,24 @@ def _tree_walk_later(root):
         finally:
             with _tree_lock:
                 _tree["busy"].discard(root)
-            if again:
-                _tree_walk_later(root)
+                if not _tree["busy"]:
+                    _tree["log"].clear()
     threading.Thread(target=_run, daemon=True, name="folder-tree").start()
 
 
-def _folder_tree_changed(gone=(), made=None, moved=None):
-    """After a folder operation: forget what went away, carry what moved (with
-    everything under it), show what was made, and have the next /api/folders
-    walk the network roots again. A root whose first walk is still running is
-    seeded too, so a folder made meanwhile shows at once."""
-    gone = [g for g in gone if g]
-    under = lambda n, g: n == g or n.startswith((g + "\\", g + "/"))
+def _folder_tree_changed(gone=(), made=None, moved=None, refresh=False):
+    """After a folder operation: the remembered folders of every network root are
+    edited to match, at once -- a walk still running replays the same edit when
+    it finishes. refresh=True (Rescan, Refresh folder, linking) has the next
+    /api/folders look at the disk again, for what changed outside TrackImage."""
+    e = ([g for g in gone if g], made, moved)
     with _tree_lock:
-        _tree["gen"] += 1
+        if _tree["busy"]:
+            _tree["log"].append(e)
         for root in set(_tree["dirs"]) | set(_tree["busy"]):
-            names = set(_tree["dirs"].get(root) or ())
-            for old, new in (moved or {}).items():
-                sub = {n for n in names if under(n, old)}
-                names = (names - sub) | {new + n[len(old):] for n in sub}
-            names = {n for n in names if not any(under(n, g) for g in gone)}
-            if made and made.split("\\", 1)[0] == Path(root).name:
-                names.add(made)
-            _tree["dirs"][root] = names
-        _tree["at"].clear()
+            _tree["dirs"][root] = _tree_edit(root, _tree["dirs"].get(root), e)
+        if refresh:
+            _tree["at"].clear()
 
 
 @app.route("/api/folders")
