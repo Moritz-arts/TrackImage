@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.84 — 2026-10-23
+
+- Create FUNDING.yml
+
 ## v4.83 — 2026-10-08
 
 - Window opens at once on a NAS library: the folder list no longer walks the whole share first
