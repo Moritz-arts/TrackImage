@@ -287,6 +287,7 @@ document.addEventListener('keydown',function(e){
     if(S.page==='detail'&&!inTextField()){
         if(_act==='bare'){e.preventDefault();toggleDetailBare();return;}
         if(_act==='library'){e.preventDefault();toggleDetailLibrary();return;}
+        if(_act==='newtag'){e.preventDefault();openNewTag();return;}
     }
     if(S.page==='detail'){if(e.key==='Escape'){if(document.activeElement&&document.activeElement.tagName==='INPUT'){document.activeElement.blur();return;}closeDetail();return;}if(document.activeElement&&document.activeElement.tagName==='INPUT')return;if(_act==='del'){e.preventDefault();deleteImage(S.currentImageId);return;}if(_act==='prev')prevImage();else if(_act==='next')nextImage();}
     if(S.page==='gallery'){if(document.activeElement&&document.activeElement.tagName==='INPUT')return;if(e.key==='Escape'){if(_sbFocus){_sbFocus=null;_sbIdx=-1;clearSbHighlight();}else if(S.selectedFolders.size){S.selectedFolders.clear();updateFolderSelection();}else if(S.clipboard.ids.length){clearClipboard();}else clearSelection();}if(_act==='del'&&S.selectedImages.size)bulkDeleteSelected();if((e.key==='ArrowUp'||e.key==='ArrowDown')&&_sbFocus){e.preventDefault();sbNavigate(e.key==='ArrowUp'?-1:1);}if(e.key==='Enter'&&_sbFocus){e.preventDefault();sbActivate();}if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&_sbFocus){e.preventDefault();sbLeftRight(e.key==='ArrowRight');}}

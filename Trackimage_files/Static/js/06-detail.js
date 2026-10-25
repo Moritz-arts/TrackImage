@@ -57,7 +57,7 @@ wait.then(go);setTimeout(go,1500);   /* a slow file is shown as it loads, not wa
 }
 
 function _buildDetailOverlay(keepZoom){var old=document.getElementById('detail-overlay');if(old)old.remove();_dz.apply=null;var img=S.images[S.currentImageIndex];if(!img)return;
-var ov=document.createElement('div');ov.id='detail-overlay';
+var ov=document.createElement('div');ov.id='detail-overlay';ov.dataset.id=img.id;   /* which picture this view shows -- openNewTag waits for it to match */
 /* v4.53: the library stays reachable while a picture is open. Its own collapsed
    state, kept apart from the gallery's, so folding it away here does not fold it
    away there. detail-bare is the other switch: nothing but the picture. */
@@ -334,8 +334,8 @@ var _aw=(img&&img.width)||m.actual_width,_ah=(img&&img.height)||m.actual_height;
 /* File size */
 if(m.file_size){has=true;var mb=m.file_size/(1024*1024);var fs=mb>=1?mb.toFixed(1)+' MB':(m.file_size/1024).toFixed(0)+' KB';h+='<div class="meta-row"><div class="meta-label">File Size</div><div class="meta-value">'+fs+'</div></div>';}
 /* Ordered fields */
-var ord=[['prompt','Prompt'],['negative_prompt','Negative'],['model','Model'],['vae','VAE'],['steps','Steps'],['sampler','Sampler'],['scheduler','Scheduler'],['cfg_scale','CFG Scale'],['seed','Seed'],['size','Size'],['hires_size','Size (Hires)'],['clip_skip','Clip Skip'],['denoising','Denoise'],['hires_upscaler','Hires Up.'],['hires_steps','Hires Steps'],['hires_upscale','Hires Scale'],['hires_cfg','Hires CFG'],['hires_sampler','Hires Sampler'],['hires_checkpoint','Hires Ckpt'],['model_hash','Model Hash'],['artist','Artist'],['title','Title'],['description','Description'],['keywords','Keywords'],['copyright','Copyright'],['original_filename','Original Name'],['camera_make','Camera'],['camera_model','Camera Model'],['lens_make','Lens'],['lens_model','Lens Model'],['focal_length','Focal Length'],['focal_length_35mm','Focal 35mm'],['f_number','Aperture'],['exposure_time','Exposure'],['iso','ISO'],['flash','Flash'],['gps','GPS'],['software','Software']];
-for(var i=0;i<ord.length;i++){var k=ord[i][0],l=ord[i][1];if(m[k]!=null&&m[k]!==''){has=true;if(k==='prompt'||k==='negative_prompt'){var mvid='mv-'+k;h+='<div class="meta-row"><div class="meta-label">'+l+'</div><div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start"><div class="meta-value prompt" id="'+mvid+'">'+esc(String(m[k]))+'</div><button class="meta-copy-btn" onclick="copyMeta(\''+mvid+'\',this)">Copy</button></div></div>';}else{h+='<div class="meta-row"><div class="meta-label">'+l+'</div><div class="meta-value">'+esc(String(m[k]))+'</div></div>';}}}
+var ord=[['prompt','Prompt'],['negative_prompt','Negative'],['model','Model'],['loras','LoRAs'],['vae','VAE'],['steps','Steps'],['sampler','Sampler'],['scheduler','Scheduler'],['cfg_scale','CFG Scale'],['seed','Seed'],['size','Size'],['hires_size','Size (Hires)'],['clip_skip','Clip Skip'],['denoising','Denoise'],['hires_upscaler','Hires Up.'],['hires_steps','Hires Steps'],['hires_upscale','Hires Scale'],['hires_cfg','Hires CFG'],['hires_sampler','Hires Sampler'],['hires_checkpoint','Hires Ckpt'],['model_hash','Model Hash'],['artist','Artist'],['title','Title'],['description','Description'],['keywords','Keywords'],['copyright','Copyright'],['original_filename','Original Name'],['camera_make','Camera'],['camera_model','Camera Model'],['lens_make','Lens'],['lens_model','Lens Model'],['focal_length','Focal Length'],['focal_length_35mm','Focal 35mm'],['f_number','Aperture'],['exposure_time','Exposure'],['iso','ISO'],['flash','Flash'],['gps','GPS'],['software','Software']];
+for(var i=0;i<ord.length;i++){var k=ord[i][0],l=ord[i][1];if(m[k]!=null&&m[k]!==''){has=true;if(k==='prompt'||k==='negative_prompt'){var mvid='mv-'+k;h+='<div class="meta-row"><div class="meta-label">'+l+'</div><div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start"><div class="meta-value prompt" id="'+mvid+'">'+esc(String(m[k]))+'</div><button class="meta-copy-btn" onclick="copyMeta(\''+mvid+'\',this)">Copy</button></div></div>';}else{h+='<div class="meta-row"><div class="meta-label">'+l+'</div><div class="meta-value"'+(k==='loras'?' style="white-space:pre-line"':'')+'>'+esc(String(m[k]))+'</div></div>';}}}
 /* Skip list */
 var skip={'actual_width':1,'actual_height':1,'file_size':1,'error':1,'raw_parameters':1,'comfyui_prompt':1,'comfyui_workflow':1,'pixel_x':1,'pixel_y':1,'orientation':1,'x_resolution':1,'y_resolution':1,'resolution_unit':1,'date_digitized':1,'date_original':1,'date_time':1,'date_created':1,'color_space':1,'sensing_method':1,'spectral_sensitivity':1,'gain_control':1,'file_source':1,'serial_number':1,'digital_zoom':1,'max_aperture':1,'exposure_bias':1,'exposure_mode':1,'exposure_program':1,'metering_mode':1,'scene_type':1,'contrast':1,'saturation':1,'sharpness':1,'white_balance':1,'subject_distance':1,'shutter_speed':1,'aperture':1,'lens_info':1,'ExifOffset':1,'tag_34665':1};ord.forEach(function(o){skip[o[0]]=1;});
 Object.keys(m).forEach(function(k){if(!skip[k]&&m[k]!=null&&m[k]!==''){has=true;h+='<div class="meta-row"><div class="meta-label">'+esc(prettyLabel(k))+'</div><div class="meta-value">'+esc(String(m[k]).substring(0,500))+'</div></div>';}});
@@ -444,14 +444,22 @@ function setSbFocus(col,el){
     applySbHighlight();
 }
 
-var _ratingLatest={},_ratingChain={};
+var _ratingLatest={},_ratingChain={},_ratingPending={};
 
 async function setRating(ids,rating){
     /* v3.65: optimistic UI first; per-image serialized requests, last press wins (fixes rapid-keypress race) */
     for(var id of ids){
-        _ratingLatest[id]=rating;
+        _ratingLatest[id]=rating;_ratingPending[id]=rating;
         var idx=getImgIndex(id);if(idx>=0)S.images[idx].rating=rating;
-        (function(iid){_ratingChain[iid]=(_ratingChain[iid]||Promise.resolve()).then(function(){if(_ratingLatest[iid]!==rating)return;return api('/api/image/'+iid+'/rating',{method:'POST',body:JSON.stringify({rating:rating})});});})(id);
+        (function(iid){_ratingChain[iid]=(_ratingChain[iid]||Promise.resolve()).then(async function(){
+            if(_ratingLatest[iid]!==rating)return;
+            /* a failed request used to vanish: the star stayed on screen, the toast said "set", and the
+               next reload showed none. api() throws on an answer that is not JSON, hence the catch. */
+            var r;try{r=await api('/api/image/'+iid+'/rating',{method:'POST',body:JSON.stringify({rating:rating})});}catch(e){r={error:'no answer from the server'};}
+            if(_ratingLatest[iid]!==rating)return;
+            delete _ratingPending[iid];
+            if(r&&r.error){showToast('Rating not saved: '+r.error);_ratingResync();}
+        });})(id);
     }
     if(rating>0)showToast('Rating '+rating+' set','success');
     else showToast('Rating cleared','success');
@@ -465,8 +473,13 @@ async function setRating(ids,rating){
     });
     // Update detail view if open
     if(S.page==='detail'){var di=document.getElementById('detail-rating');if(di){di.textContent=rating>0?rating:'';di.style.color=rating>0?ratingColor(rating):'var(--accent-light)';}}
+    /* the column counts come from the server: ask once it has the new ratings, not while the requests are still on their way */
+    await Promise.all(ids.map(function(id){return _ratingChain[id];}));
     await loadCharacters();renderTagList();
 }
+
+/* A rating the server refused: show what it really holds. */
+async function _ratingResync(){await loadImagesRefresh();if(S.page==='gallery')renderMainSoft();if(S.page==='detail'&&S.images[S.currentImageIndex]){var di=document.getElementById('detail-rating'),r=S.images[S.currentImageIndex].rating||0;if(di){di.textContent=r>0?r:'';di.style.color=r>0?ratingColor(r):'var(--accent-light)';}}await loadCharacters();renderTagList();}
 
 function ratingColor(r){r=parseInt(r)||0;if(r<1)return '';var h=Math.round((r-1)/8*120);return 'hsl('+h+',65%,45%)';}
 

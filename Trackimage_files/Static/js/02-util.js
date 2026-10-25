@@ -447,6 +447,7 @@ var KEY_ACTIONS=[
  ['info',   'Show or hide the info panel',         'i',         'Gallery \u00b7 Full view'],
  ['bare',   'Whole-screen view',                   'f',         'Full view'],
  ['library','Fold the folder and tag columns away','l',         'Full view'],
+ ['newtag', 'Add a tag to this picture',           't',         'Full view'],
  ['prev',   'Previous image',                      'ArrowLeft', 'Full view'],
  ['next',   'Next image',                          'ArrowRight','Full view'],
  ['del',    'Delete',                              'Delete',    'Gallery \u00b7 Full view']

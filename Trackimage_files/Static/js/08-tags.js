@@ -77,11 +77,25 @@ async function removeTagFromSelection(tag){
     await Promise.all([loadCharacters(),loadImagesReset()]);if(S.page==='gallery')renderMain();renderTagList();
 }
 
-function addTagBtnHtml(imgId){return '<button class="add-tag-btn" onclick="toggleAddTag('+imgId+')" id="add-tag-toggle" title="Add tag">+</button><div class="add-tag-inline" id="add-tag-inline"><input id="add-tag-input" placeholder="Tag name..." onkeydown="if(event.key===\'Enter\')addTag('+imgId+');if(event.key===\'Escape\')toggleAddTag()"/><button class="char-toggle'+(_charMode?' active':'')+'" onclick="toggleCharMode()" title="Add as character tag (known characters are auto-detected)">CHAR</button></div>';}
+function addTagBtnHtml(imgId){return '<button class="add-tag-btn" onclick="toggleAddTag('+imgId+')" id="add-tag-toggle" title="Add tag ('+keyLabel(keyFor('newtag'))+')">+</button><div class="add-tag-inline" id="add-tag-inline"><input id="add-tag-input" placeholder="Tag name..." onkeydown="if(event.key===\'Enter\')addTag('+imgId+');if(event.key===\'Escape\')toggleAddTag()"/><button class="char-toggle'+(_charMode?' active':'')+'" onclick="toggleCharMode()" title="Add as character tag (known characters are auto-detected)">CHAR</button></div>';}
 
 function hookAddTagAC(){var ati=document.getElementById('add-tag-input');if(!ati||ati._acAttached)return;ati._acAttached=true;attachAutocomplete(ati,{mode:'search',fetchItems:async function(q){var r=await api('/api/suggest-tags?q='+encodeURIComponent(q)+'&image_id='+S.currentImageId);return Array.isArray(r)?r:[];},onPick:function(name,it){var v=(it&&(it.value||it.name))||name;var inp=document.getElementById('add-tag-input');if(inp)inp.value=v;addTag(S.currentImageId,(it&&it.type==='name')?'character':undefined);}});}
 
 async function retagOne(id){showToast('Re-tagging\u2026','success',true);var r=await api('/api/image/'+id+'/retag',{method:'POST'});if(r&&r.error)return showToast('Error: '+r.error);showToast('Auto-tags reset','success',true);S.tagsModified=true;loadDetailTags(id);}
+
+/* The T key: straight into the tag field of the picture on screen. Whatever hides the
+   field -- the whole-screen view, a folded info panel, a folded Tags section -- is
+   undone first. The field is built by loadDetailTags once the picture is up, and the
+   view still shows the previous picture while the next one loads -- a tag typed into
+   that would go to the wrong image and be wiped when the new view replaces it -- so a
+   key pressed right after stepping on waits until the view and the picture agree. */
+function openNewTag(n){if(S.page!=='detail'||!S.currentImageId)return;n=n||0;
+if(!n){if(S.detailBare)toggleDetailBare();if(S.detailSidebarCollapsed)toggleDetailSidebar();if(!_tagsOpen())toggleTagsPanel();}
+var ov=document.getElementById('detail-overlay');
+var el=(ov&&ov.dataset.id===String(S.currentImageId))?document.getElementById('add-tag-inline'):null;
+if(!el){if(n<20)setTimeout(function(){openNewTag(n+1);},100);return;}
+if(!el.classList.contains('open'))toggleAddTag();
+var inp=document.getElementById('add-tag-input');if(inp){inp.focus();inp.select();}}
 
 function toggleAddTag(id){var el=document.getElementById('add-tag-inline');var btn=document.getElementById('add-tag-toggle');if(!el)return;if(el.classList.contains('open')){el.classList.remove('open');if(btn)btn.style.display='';}else{el.classList.add('open');if(btn)btn.style.display='none';var inp=document.getElementById('add-tag-input');if(inp)inp.focus();}}
 
@@ -127,10 +141,13 @@ function buildTagsHtml(allCount){
         if(ratingTags.length){ratingTags.forEach(function(t){h+='<div class="tag-item'+(sel.indexOf(t.name)>=0?' active':'')+'" data-tag="'+esc(t.name)+'" onclick="filterByTag(this.dataset.tag,event)"><span style="color:'+(_crc[t.name]||'inherit')+';font-weight:700">'+esc(t.name)+'</span><span class="count">'+t.image_count+'</span></div>';});}
         if(starRows.length||ratingTags.length){h+='</div>';}
         tags=tags.filter(function(t){return t.category!=='rating';});
-        if(!tags.length&&!ratingTags.length&&_tagAvail()){h+='<div style="padding:10px 12px;color:var(--text-muted);font-size:12px;line-height:1.5">No auto-tags yet \u2014 tagging runs automatically in the background.</div>';}
+        /* your own tags first and in their own colour: with the tagger running they were
+           a few lines among thousands, sorted by count like everything else */
+        tags=tags.filter(function(t){return t.manual;}).concat(tags.filter(function(t){return !t.manual;}));
+        if(!tags.length&&!ratingTags.length&&_tagAvail()){h+='<div style="padding:10px 12px;color:var(--text-muted);font-size:12px;line-height:1.5">'+(((S._tag||{}).enabled===false)?'No tags yet \u2014 automatic tagging is off; add your own in the full view.':'No auto-tags yet \u2014 tagging runs automatically in the background.')+'</div>';}
         tags.forEach(function(t){
             var cat=(t.category&&t.category!=='general')?'<span class="tcat">'+esc(String(t.category).slice(0,4))+'</span>':'';
-            h+='<div class="tag-item'+(sel.indexOf(t.name)>=0?' active':'')+'" data-tag="'+esc(t.name)+'" onclick="filterByTag(this.dataset.tag,event)"><span>'+esc(t.name)+cat+'</span><span class="count">'+t.image_count+'</span></div>';
+            h+='<div class="tag-item'+(t.manual?' manual':'')+(sel.indexOf(t.name)>=0?' active':'')+'" data-tag="'+esc(t.name)+'" onclick="filterByTag(this.dataset.tag,event)"><span>'+esc(t.name)+cat+'</span><span class="count">'+t.image_count+'</span></div>';
         });
         return h;
     }
@@ -176,7 +193,7 @@ function removeTagFilterChip(n){if(!S.filter.tags)return;detailExitToGallery();v
 
 function _crColor(n){return n==='general'?'hsl(120,65%,45%)':(n==='sensitive'?'hsl(35,85%,50%)':'hsl(0,65%,45%)');}
 
-function buildDetailMLTagsHtml(tags,tagged,imgId){if(!tags||!tags.length){return (tagged?'<span style="color:var(--text-muted);font-size:12px">no tags</span>':'')+addTagBtnHtml(imgId);}var q=((S.filter&&S.filter.search)||'').trim().toLowerCase();var rank={rating:0,character:1,general:2,other:3};var sorted=tags.slice().sort(function(a,b){if(q){var am=(a.name||'').toLowerCase().indexOf(q)>=0?0:1,bm=(b.name||'').toLowerCase().indexOf(q)>=0?0:1;if(am!==bm)return am-bm;}var ar=(rank[a.category]!=null?rank[a.category]:9),br=(rank[b.category]!=null?rank[b.category]:9);if(ar!==br)return ar-br;return (b.score||0)-(a.score||0);});var h='';sorted.forEach(function(t){var cat=t.category==='character'?' cat-character':(t.category==='rating'?' cat-rating':'');var hl=(q&&(t.name||'').toLowerCase().indexOf(q)>=0)?' mltag-match':'';var st=t.category==='rating'?' style="color:'+_crColor(t.name)+';font-weight:700"':'';h+='<span class="mltag'+cat+hl+'"'+st+' title="'+(t.category==='character'?'character':'tag')+(t.score!=null?(' \u00b7 score '+t.score):'')+'" onclick="tagFromDetail(\''+esc(t.name)+'\')">'+esc(t.name)+'<span class="mltag-x" title="Remove tag" onclick="event.stopPropagation();removeAutoTag('+imgId+',\''+esc(t.name)+'\',\''+esc(t.category||'')+'\')">\u2715</span></span>';});return h+addTagBtnHtml(imgId);}
+function buildDetailMLTagsHtml(tags,tagged,imgId){if(!tags||!tags.length){return (tagged?'<span style="color:var(--text-muted);font-size:12px">no tags</span>':'')+addTagBtnHtml(imgId);}var q=((S.filter&&S.filter.search)||'').trim().toLowerCase();var rank={rating:0,character:1,general:2,other:3};var sorted=tags.slice().sort(function(a,b){if(q){var am=(a.name||'').toLowerCase().indexOf(q)>=0?0:1,bm=(b.name||'').toLowerCase().indexOf(q)>=0?0:1;if(am!==bm)return am-bm;}var ar=(rank[a.category]!=null?rank[a.category]:9),br=(rank[b.category]!=null?rank[b.category]:9);if(ar!==br)return ar-br;return (b.score||0)-(a.score||0);});var h='';sorted.forEach(function(t){var cat=(t.category==='character'?' cat-character':(t.category==='rating'?' cat-rating':''))+(t.manual?' manual':'');var hl=(q&&(t.name||'').toLowerCase().indexOf(q)>=0)?' mltag-match':'';var st=t.category==='rating'?' style="color:'+_crColor(t.name)+';font-weight:700"':'';h+='<span class="mltag'+cat+hl+'"'+st+' title="'+(t.manual?'your tag':(t.category==='character'?'character':'tag'))+(!t.manual&&t.score!=null?(' \u00b7 score '+t.score):'')+'" onclick="tagFromDetail(\''+esc(t.name)+'\')">'+esc(t.name)+'<span class="mltag-x" title="Remove tag" onclick="event.stopPropagation();removeAutoTag('+imgId+',\''+esc(t.name)+'\',\''+esc(t.category||'')+'\')">\u2715</span></span>';});return h+addTagBtnHtml(imgId);}
 
 async function loadDetailTags(id){try{var r=await api('/api/image/'+id);if(r&&S.currentImageId===id){var box=document.getElementById('detail-tags-box');if(box){box.innerHTML=buildDetailMLTagsHtml(r.tags,r.tagged,id);hookAddTagAC();}var tc=document.getElementById('tags-count');if(tc)tc.textContent=(r.tags&&r.tags.length)||0;}}catch(_){}}
 
@@ -214,4 +231,4 @@ return '<div class="proc-hint">Runtime ready \u00b7 device <b>'+esc(tg.device||'
   '<button class="btn btn-sm" onclick="installTagging()">Reinstall with this runtime</button></div>'+
   hardwareLineHtml()+'</div>';}
 
-function _tagStatText(d){d=d||{};var done=d.done||0,total=d.total||0,pend=d.pending||0;if(d.running){var s='<b>'+done+'</b> / '+total+' tagged \u00b7 '+pend+' pending';var r=_fpsRate(_tagRate,done);if(pend>0&&r>=0.2){s+=' \u00b7 <b>'+(r>=10?Math.round(r):r.toFixed(1))+'</b>/s';var et=_fmtEta(pend/r);if(et)s+=' \u00b7 ~'+et+' left';}else if(d.active){s+=' \u00b7 working\u2026';}return s;}_resetRate(_tagRate);if(pend>0)return '<b>'+done+'</b> / '+total+' tagged \u00b7 '+pend+' pending';return total>0?('\u2713 All '+total+' images tagged'):'No images yet';}
+function _tagStatText(d){d=d||{};var done=d.done||0,total=d.total||0,pend=d.pending||0;if(d.running){var s='<b>'+done+'</b> / '+total+' tagged \u00b7 '+pend+' pending';var r=_fpsRate(_tagRate,done);if(pend>0&&r>=0.2){s+=' \u00b7 <b>'+(r>=10?Math.round(r):r.toFixed(1))+'</b>/s';var et=_fmtEta(pend/r);if(et)s+=' \u00b7 ~'+et+' left';}else if(d.active){s+=' \u00b7 working\u2026';}return s;}_resetRate(_tagRate);if(d.enabled===false)return 'Automatic tagging is off'+(pend>0?' \u00b7 '+pend+' pictures untagged':'');if(pend>0)return '<b>'+done+'</b> / '+total+' tagged \u00b7 '+pend+' pending';return total>0?('\u2713 All '+total+' images tagged'):'No images yet';}

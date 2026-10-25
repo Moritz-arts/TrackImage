@@ -191,14 +191,16 @@ def api_scan_progress():
 
 @app.route("/api/autosync", methods=["GET", "POST"])
 def api_autosync():
-    # v3.61: ONE switch for watcher + auto-processing + auto-tagging.
+    # v3.61: one switch for watcher + auto-processing. Auto-tagging used to ride
+    # along (it was written to tag_enabled here), so nobody could sync without the
+    # tagger running over every new picture; it has its own switch now, and
+    # _tag_ensure_running below honours it.
     if request.method == "POST":
         on = bool((request.get_json() or {}).get("on", True))
         _AUTOSYNC["on"] = on
         _tag_save_cfg("autosync", "1" if on else "0")
         _proc["auto"] = on
         _proc_save_setting("proc_auto", "1" if on else "0")
-        _tag_save_cfg("tag_enabled", "1" if on else "0")
         if on:
             threading.Thread(target=_incremental_sync, kwargs={"catch_up": True}, daemon=True).start()  # catch up
             _proc_ensure_running(reset_progress=False)

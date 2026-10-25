@@ -6,7 +6,7 @@
 @font-face{font-family:'Space Mono';font-style:normal;font-weight:400;font-display:swap;src:url(/static/fonts/space-mono-400.ttf) format('truetype');}
 @font-face{font-family:'Space Mono';font-style:normal;font-weight:700;font-display:swap;src:url(/static/fonts/space-mono-700.ttf) format('truetype');}
 
-:root{--bg-primary:#0a0a0c;--bg-secondary:#111116;--bg-card:#16161c;--bg-hover:#1e1e26;--border:#2a2a35;--border-light:#35354a;--text-primary:#e8e8f0;--text-secondary:#8888a0;--text-muted:#555568;--accent:#d4a017;--accent-light:#f0c040;--accent-dim:#d4a01720;--accent-glow:#d4a01740;--success:#00b894;--danger:#e17055;--warning:#e8a84f;--tag-bg:#d4a01718;--tag-border:#d4a01740;--radius:8px;--radius-lg:14px;--transition:0.2s cubic-bezier(0.4,0,0.2,1);--folder-col-w:200px;--tag-col-w:200px;--gallery-cols:8;}
+:root{--bg-primary:#0a0a0c;--bg-secondary:#111116;--bg-card:#16161c;--bg-hover:#1e1e26;--border:#2a2a35;--border-light:#35354a;--text-primary:#e8e8f0;--text-secondary:#8888a0;--text-muted:#555568;--accent:#d4a017;--accent-light:#f0c040;--accent-dim:#d4a01720;--accent-glow:#d4a01740;--manual:#4fc3f7;--manual-dim:#4fc3f71a;--manual-border:#4fc3f755;--success:#00b894;--danger:#e17055;--warning:#e8a84f;--tag-bg:#d4a01718;--tag-border:#d4a01740;--radius:8px;--radius-lg:14px;--transition:0.2s cubic-bezier(0.4,0,0.2,1);--folder-col-w:200px;--tag-col-w:200px;--gallery-cols:8;}
 *{margin:0;padding:0;box-sizing:border-box;}
 /* v4.35: one number for "how tall is the screen right now", set from JS and
    kept current while the browser's address bar slides in and out. A fixed
@@ -94,6 +94,9 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg-primary)
 .detail-tags .mltag:hover{border-color:var(--accent);color:var(--accent-light);}
 .detail-tags .mltag.cat-character{color:var(--accent);}
 .detail-tags .mltag.cat-rating{opacity:.8;font-style:italic;}
+/* tags the user wrote by hand: the auto-tagger puts hundreds beside them */
+.detail-tags .mltag.manual{color:var(--manual);background:var(--manual-dim);border-color:var(--manual-border);font-weight:600;}
+.tag-item.manual>span:first-child{color:var(--manual);font-weight:600;}
 .detail-tags .mltag.mltag-match{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;opacity:1;font-style:normal;}
 .tree-toggle.kb-hl{outline:1px solid var(--accent);outline-offset:-1px;}
 .tag-letter{font-family:'Space Mono',monospace;font-size:10px;font-weight:700;color:var(--accent);padding:8px 12px 2px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:4px;user-select:none;}

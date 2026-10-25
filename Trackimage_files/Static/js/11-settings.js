@@ -396,7 +396,7 @@ var g=(tg.gen!=null?tg.gen:0.25),c=(tg.char!=null?tg.char:0.85);
 var mw=(tg.max_workers||8),wv=(tg.workers!=null?tg.workers:4),wpos=(wv>0?Math.min(wv,mw):Math.max(1,Math.round(mw*0.85)));
 return sCard('Auto-tagging','Recognises what is in each picture \u2014 characters, clothing, scenery \u2014 so you can search for it. Runs in the background over the whole library and every new picture; the tags are kept in the database. GIFs and videos are tagged from their first frame.',
   '<div id="tag-status-box" class="s-status">'+_tagStatusHtml(tg)+'</div>'
-  +sRow('Tag new pictures automatically','Part of Autosync.',sSwitch('id="tag-toggle"',S.autosync,'toggleAutosync()'))
+  +sRow('Tag new pictures automatically','Independent of Autosync \u2014 switch it off to sync without tagging. Tags already made stay.',sSwitch('id="tag-toggle"',tg.enabled!==false,'toggleTagAuto(this.checked)'))
   +sSlider('General tags','<span id="tag-gen-val">'+g.toFixed(2)+'</span>','<input id="tag-gen" type="range" min="0.05" max="0.9" step="0.05" value="'+g+'" oninput="var e=document.getElementById(\'tag-gen-val\');if(e)e.textContent=parseFloat(this.value).toFixed(2)" onchange="applyTagThreshold()">','How sure the model must be. Lower gives more tags and more wrong ones.')
   +sSlider('Character names','<span id="tag-char-val">'+c.toFixed(2)+'</span>','<input id="tag-char" type="range" min="0.05" max="0.95" step="0.05" value="'+c+'" oninput="var e=document.getElementById(\'tag-char-val\');if(e)e.textContent=parseFloat(this.value).toFixed(2)" onchange="applyTagThreshold()">','How sure it must be before it names a character.')
   +sSlider('Parallel workers','<span id="tag-workers-val">'+wLabel(wpos)+'</span>','<input id="tag-workers" type="range" min="1" max="'+mw+'" step="1" value="'+wpos+'" oninput="var e=document.getElementById(\'tag-workers-val\');if(e)e.textContent=wLabel(+this.value)" onchange="onTagWorkers()">','Prepare pictures for the model. Follows Processing power unless set here.')
@@ -405,6 +405,8 @@ return sCard('Auto-tagging','Recognises what is in each picture \u2014 character
   +sMore('About the workers','<p>They read, decode and resize each picture to the size the model expects. They are not graphics-card workers: the model itself runs one picture at a time on the device, and the workers keep it fed. On a busy graphics card more of them only use memory; on the processor more genuinely helps.</p>'));}
 
 function updateTagCard(d){if(!d)return;S._tag=Object.assign(S._tag||{},d);var t=S._tag;var fill=document.getElementById('tag-bar-fill');if(fill){var pct=t.total?Math.round((t.done||0)/t.total*100):0;fill.style.width=pct+'%';fill.className='proc-bar-fill'+(((t.pending||0)===0&&!t.running)?' idle':'');}var st=document.getElementById('tag-stat');if(st)st.innerHTML=_tagStatText(t);var tgl=document.getElementById('tag-toggle');if(tgl&&d.enabled!=null&&document.activeElement!==tgl)tgl.checked=!!d.enabled;var pb=document.getElementById('tag-pause-btn');if(pb)pb.innerHTML=t.running?'Pause':'Resume';var box=document.getElementById('tag-status-box');if(box)box.innerHTML=_tagStatusHtml(t);updateWorkSpinner();}
+
+async function toggleTagAuto(on){try{var d=await api('/api/tag-settings',{method:'POST',body:JSON.stringify({enabled:!!on})});updateTagCard(d);showToast(on?'Tagging new pictures automatically':'Automatic tagging is off','success');}catch(e){showToast('Could not change tagging');}}
 
 async function applyTagThreshold(){var g=parseFloat(document.getElementById('tag-gen').value),c=parseFloat(document.getElementById('tag-char').value);try{var d=await api('/api/tag-settings',{method:'POST',body:JSON.stringify({gen:g,char:c})});updateTagCard(d);}catch(e){}}
 
@@ -554,7 +556,7 @@ var helpCard=sCard('Search','',
   +sRow('Colours','From <span style="color:hsl(0,65%,45%);font-weight:700">red (1)</span> through <span style="color:hsl(60,65%,45%);font-weight:700">yellow (5)</span> to <span style="color:hsl(120,65%,45%);font-weight:700">green (9)</span> — the tile border takes the same colour.','')
   +sRow('Content rating','From auto-tagging: <span style="color:hsl(120,65%,45%);font-weight:700">general</span>, <span style="color:hsl(35,85%,50%);font-weight:700">sensitive</span> or <span style="color:hsl(0,65%,45%);font-weight:700">explicit</span>. Both kinds of rating are filter rows at the top of the Names and Tags columns.',''))
  +sCard('Tags','',
-   sRow('Where tags come from','All from the auto-tagger — file names never become tags.','')
+   sRow('Where tags come from','The auto-tagger, and the ones you add yourself — those are shown in blue so they stand out. File names never become tags.','')
   +sRow('Names column','Groups file names: “Oliver (1)” and “Oliver (2)” are both <b>Oliver</b>. Clicking one filters by it.','')
   +sRow('Tags column','Every tag; <span style="color:var(--accent);font-weight:600">character tags</span> in gold. Tags you add yourself survive re-tagging.','')
   +sRow('In the full view','<b>+</b> adds a tag, <b>✕</b> removes it from this picture only, <b>↻</b> tags the picture again and brings back removed ones.',''))

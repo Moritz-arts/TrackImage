@@ -165,7 +165,7 @@ def main():
     if HAS_PHASH:
         log("Duplicate engine: on-demand RAM pairs (numpy-accelerated)")   # v3.66: no background pairing
     _autosync_load()   # v3.61
-    log(f"Autosync {'ON' if _AUTOSYNC['on'] else 'OFF'} \u2014 watcher, auto-processing and auto-tagging follow this switch")
+    log(f"Autosync {'ON' if _AUTOSYNC['on'] else 'OFF'} \u2014 watcher and auto-processing follow this switch")
     # v4.26: _tag_ensure_running() asked whether onnxruntime was importable, and
     # answered by importing it -- right here on the way up. After a runtime swap
     # left the installation mixed, that import crashed the start itself, which is

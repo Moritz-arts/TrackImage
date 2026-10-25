@@ -37,7 +37,7 @@ function showScanProgress(p){var el=document.getElementById('scan-progress');if(
 
 async function pollScanProgress(){try{var p=await api('/api/scan-progress');showScanProgress(p);if(p.active){_scanPollTimer=setTimeout(pollScanProgress,500);}else{_scanPollTimer=null;}}catch(e){_scanPollTimer=null;}}
 
-async function toggleAutosync(){try{var r=await api('/api/autosync',{method:'POST',body:JSON.stringify({on:!S.autosync})});S.autosync=!!r.on;updateWatcherIndicator();showToast(S.autosync?'Autosync ON \u2014 watcher, processing & tagging active':'Autosync OFF \u2014 refresh the opened folder manually via \u21bb','success');if(S.page==='settings')render();}catch(e){showToast('Could not toggle autosync');}}
+async function toggleAutosync(){try{var r=await api('/api/autosync',{method:'POST',body:JSON.stringify({on:!S.autosync})});S.autosync=!!r.on;updateWatcherIndicator();showToast(S.autosync?'Autosync ON \u2014 watcher & processing active':'Autosync OFF \u2014 refresh the opened folder manually via \u21bb','success');if(S.page==='settings')render();}catch(e){showToast('Could not toggle autosync');}}
 
 async function rescan(){S.loading=true;render();_scanPollTimer=setTimeout(pollScanProgress,300);try{var r=await api('/api/scan',{method:'POST'});if(r.error)showToast('Error: '+r.error);else showToast('Scan: '+r.new+' new, '+r.removed+' removed','success');S.initialized=true;await Promise.all([loadStats(),loadCharacters(),loadFolders(),loadImagesReset()]);}catch(e){showToast('Scan failed');}S.loading=false;showScanProgress({active:false,folders:[]});if(_scanPollTimer){clearTimeout(_scanPollTimer);_scanPollTimer=null;}render();}
 

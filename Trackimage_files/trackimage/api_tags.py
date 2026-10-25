@@ -74,6 +74,8 @@ def api_tag_stop():
 
 @app.route("/api/tag/retag-all", methods=["POST"])
 def api_tag_retag_all():
+    if not _tag_get_cfg()["enabled"]:   # resetting every picture would leave them all pending, with nothing to tag them
+        return jsonify({"error": "Automatic tagging is switched off \u2014 switch it on first"}), 400
     db = get_db()
     db.execute("UPDATE images SET tagged=0")
     db.commit()
@@ -124,6 +126,9 @@ def api_tags():
     # v3.31: ML auto-tag list for the sidebar (Booru order: most common first).
     # v3.46: character tags live in the Characters column, so exclude them here.
     db = get_db()
+    # a tag counts as the user's own as soon as one picture carries it by hand,
+    # whichever folder is open -- its colour must not change with the view
+    manual = {r[0] for r in db.execute("SELECT DISTINCT tag_id FROM image_tags WHERE source='manual'")}
     folders, subs = _folder_args()
     search = request.args.get("search", "")
     conds, params = [], []
@@ -143,7 +148,7 @@ def api_tags():
             JOIN tags t ON t.id=c.tag_id
             ORDER BY c.n DESC, t.name COLLATE NOCASE ASC""").fetchall()
         return jsonify([{"id": r["id"], "name": _disp_tag(r["name"]), "category": r["category"],
-                         "image_count": r["image_count"]} for r in rows])
+                         "image_count": r["image_count"], "manual": r["id"] in manual} for r in rows])
     rows = db.execute(f"""
         SELECT t.id, t.name, t.category, COUNT(DISTINCT it.image_id) as image_count
         FROM tags t
@@ -152,7 +157,7 @@ def api_tags():
         GROUP BY t.id ORDER BY image_count DESC, t.name COLLATE NOCASE ASC
     """, params).fetchall()
     return jsonify([{"id": r["id"], "name": _disp_tag(r["name"]), "category": r["category"],
-                     "image_count": r["image_count"]} for r in rows])
+                     "image_count": r["image_count"], "manual": r["id"] in manual} for r in rows])
 
 
 def _verify_by_tags(db, ids, qtags, items):
