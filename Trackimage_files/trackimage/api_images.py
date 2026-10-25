@@ -142,12 +142,13 @@ def api_image_detail(image_id):
     if not row: return jsonify({"error": "Not found"}), 404
     mt = row["media_type"] if "media_type" in row.keys() else "image"
     if not mt: mt = "image"
-    tag_rows = db.execute("SELECT t.name, t.category, it.score FROM tags t JOIN image_tags it ON t.id=it.tag_id WHERE it.image_id=? ORDER BY it.score DESC", (image_id,)).fetchall()
+    tag_rows = db.execute("SELECT t.name, t.category, it.score, it.source FROM tags t JOIN image_tags it ON t.id=it.tag_id WHERE it.image_id=? ORDER BY it.score DESC", (image_id,)).fetchall()
     tagged = row["tagged"] if "tagged" in row.keys() else 0
     return jsonify({"id": row["id"], "filename": row["filename"], "folder": row["folder"],
         "filepath": row["filepath"], "width": row["width"], "height": row["height"],
         "file_date": row["file_date"],
-        "tags": [{"name": _disp_tag(t["name"]), "category": t["category"], "score": round(t["score"], 3)} for t in tag_rows],
+        "tags": [{"name": _disp_tag(t["name"]), "category": t["category"], "score": round(t["score"], 3),
+                  "manual": t["source"] == "manual"} for t in tag_rows],
         "tagged": tagged,
         "fphash": get_filepath_hash(row["filepath"]),
         "is_video": mt == "video", "media_type": mt,

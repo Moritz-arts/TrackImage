@@ -556,7 +556,7 @@ var helpCard=sCard('Search','',
   +sRow('Colours','From <span style="color:hsl(0,65%,45%);font-weight:700">red (1)</span> through <span style="color:hsl(60,65%,45%);font-weight:700">yellow (5)</span> to <span style="color:hsl(120,65%,45%);font-weight:700">green (9)</span> — the tile border takes the same colour.','')
   +sRow('Content rating','From auto-tagging: <span style="color:hsl(120,65%,45%);font-weight:700">general</span>, <span style="color:hsl(35,85%,50%);font-weight:700">sensitive</span> or <span style="color:hsl(0,65%,45%);font-weight:700">explicit</span>. Both kinds of rating are filter rows at the top of the Names and Tags columns.',''))
  +sCard('Tags','',
-   sRow('Where tags come from','All from the auto-tagger — file names never become tags.','')
+   sRow('Where tags come from','The auto-tagger, and the ones you add yourself — those are shown in blue so they stand out. File names never become tags.','')
   +sRow('Names column','Groups file names: “Oliver (1)” and “Oliver (2)” are both <b>Oliver</b>. Clicking one filters by it.','')
   +sRow('Tags column','Every tag; <span style="color:var(--accent);font-weight:600">character tags</span> in gold. Tags you add yourself survive re-tagging.','')
   +sRow('In the full view','<b>+</b> adds a tag, <b>✕</b> removes it from this picture only, <b>↻</b> tags the picture again and brings back removed ones.',''))

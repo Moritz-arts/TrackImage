@@ -257,6 +257,9 @@ def init_db():
     try:
         db.execute("CREATE INDEX IF NOT EXISTS idx_images_pending ON images(id) WHERE meta_done=0")
         db.execute("CREATE INDEX IF NOT EXISTS idx_images_untagged ON images(id) WHERE tagged=0")
+        # the tag column marks tags the user wrote themselves; they are a handful
+        # among hundreds of thousands of auto rows, so the lookup reads only them
+        db.execute("CREATE INDEX IF NOT EXISTS idx_image_tags_manual ON image_tags(tag_id) WHERE source='manual'")
         db.commit()
     except Exception:
         pass
