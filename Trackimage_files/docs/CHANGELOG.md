@@ -5,6 +5,14 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.85 — 2026-10-25
+
+- Auto-tagging has its own switch: syncing no longer forces the tagger on
+- Tags you add yourself stand out in blue, in the full view and the tag column
+- Full view lists the model and the LoRAs a ComfyUI picture was made with
+- T adds a tag to the picture in the full view
+- Star ratings land on the right picture while Autosync refreshes the folder
+
 ## v4.84 — 2026-10-23
 
 - Create FUNDING.yml
