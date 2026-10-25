@@ -57,7 +57,7 @@ wait.then(go);setTimeout(go,1500);   /* a slow file is shown as it loads, not wa
 }
 
 function _buildDetailOverlay(keepZoom){var old=document.getElementById('detail-overlay');if(old)old.remove();_dz.apply=null;var img=S.images[S.currentImageIndex];if(!img)return;
-var ov=document.createElement('div');ov.id='detail-overlay';
+var ov=document.createElement('div');ov.id='detail-overlay';ov.dataset.id=img.id;   /* which picture this view shows -- openNewTag waits for it to match */
 /* v4.53: the library stays reachable while a picture is open. Its own collapsed
    state, kept apart from the gallery's, so folding it away here does not fold it
    away there. detail-bare is the other switch: nothing but the picture. */

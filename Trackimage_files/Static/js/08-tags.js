@@ -77,11 +77,25 @@ async function removeTagFromSelection(tag){
     await Promise.all([loadCharacters(),loadImagesReset()]);if(S.page==='gallery')renderMain();renderTagList();
 }
 
-function addTagBtnHtml(imgId){return '<button class="add-tag-btn" onclick="toggleAddTag('+imgId+')" id="add-tag-toggle" title="Add tag">+</button><div class="add-tag-inline" id="add-tag-inline"><input id="add-tag-input" placeholder="Tag name..." onkeydown="if(event.key===\'Enter\')addTag('+imgId+');if(event.key===\'Escape\')toggleAddTag()"/><button class="char-toggle'+(_charMode?' active':'')+'" onclick="toggleCharMode()" title="Add as character tag (known characters are auto-detected)">CHAR</button></div>';}
+function addTagBtnHtml(imgId){return '<button class="add-tag-btn" onclick="toggleAddTag('+imgId+')" id="add-tag-toggle" title="Add tag ('+keyLabel(keyFor('newtag'))+')">+</button><div class="add-tag-inline" id="add-tag-inline"><input id="add-tag-input" placeholder="Tag name..." onkeydown="if(event.key===\'Enter\')addTag('+imgId+');if(event.key===\'Escape\')toggleAddTag()"/><button class="char-toggle'+(_charMode?' active':'')+'" onclick="toggleCharMode()" title="Add as character tag (known characters are auto-detected)">CHAR</button></div>';}
 
 function hookAddTagAC(){var ati=document.getElementById('add-tag-input');if(!ati||ati._acAttached)return;ati._acAttached=true;attachAutocomplete(ati,{mode:'search',fetchItems:async function(q){var r=await api('/api/suggest-tags?q='+encodeURIComponent(q)+'&image_id='+S.currentImageId);return Array.isArray(r)?r:[];},onPick:function(name,it){var v=(it&&(it.value||it.name))||name;var inp=document.getElementById('add-tag-input');if(inp)inp.value=v;addTag(S.currentImageId,(it&&it.type==='name')?'character':undefined);}});}
 
 async function retagOne(id){showToast('Re-tagging\u2026','success',true);var r=await api('/api/image/'+id+'/retag',{method:'POST'});if(r&&r.error)return showToast('Error: '+r.error);showToast('Auto-tags reset','success',true);S.tagsModified=true;loadDetailTags(id);}
+
+/* The T key: straight into the tag field of the picture on screen. Whatever hides the
+   field -- the whole-screen view, a folded info panel, a folded Tags section -- is
+   undone first. The field is built by loadDetailTags once the picture is up, and the
+   view still shows the previous picture while the next one loads -- a tag typed into
+   that would go to the wrong image and be wiped when the new view replaces it -- so a
+   key pressed right after stepping on waits until the view and the picture agree. */
+function openNewTag(n){if(S.page!=='detail'||!S.currentImageId)return;n=n||0;
+if(!n){if(S.detailBare)toggleDetailBare();if(S.detailSidebarCollapsed)toggleDetailSidebar();if(!_tagsOpen())toggleTagsPanel();}
+var ov=document.getElementById('detail-overlay');
+var el=(ov&&ov.dataset.id===String(S.currentImageId))?document.getElementById('add-tag-inline'):null;
+if(!el){if(n<20)setTimeout(function(){openNewTag(n+1);},100);return;}
+if(!el.classList.contains('open'))toggleAddTag();
+var inp=document.getElementById('add-tag-input');if(inp){inp.focus();inp.select();}}
 
 function toggleAddTag(id){var el=document.getElementById('add-tag-inline');var btn=document.getElementById('add-tag-toggle');if(!el)return;if(el.classList.contains('open')){el.classList.remove('open');if(btn)btn.style.display='';}else{el.classList.add('open');if(btn)btn.style.display='none';var inp=document.getElementById('add-tag-input');if(inp)inp.focus();}}
 
