@@ -313,18 +313,45 @@ def extract_video_metadata(filepath):
     return meta
 
 
+# ComfyUI's stock loaders and the input that names the file. Custom loader packs
+# differ too much to guess at; the stock ones are what most graphs are built from.
+_COMFY_MODEL_LOADERS = {"CheckpointLoaderSimple": "ckpt_name", "CheckpointLoader": "ckpt_name",
+                        "unCLIPCheckpointLoader": "ckpt_name", "UNETLoader": "unet_name"}
+_COMFY_LORA_LOADERS = ("LoraLoader", "LoraLoaderModelOnly")
+_MODEL_EXT = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf")
+
+
+def _comfy_model_name(v):
+    """'sdxl\\wai_v14.safetensors' -> 'wai_v14'. A name that is a link to another node is skipped."""
+    if not isinstance(v, str) or not v.strip():
+        return ""
+    n = v.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    low = n.lower()
+    for e in _MODEL_EXT:
+        if low.endswith(e):
+            return n[:-len(e)]
+    return n
+
+
+def _comfy_strength(v):
+    try:
+        return "%g" % float(v)
+    except (TypeError, ValueError):
+        return ""   # a link to a primitive node, not a number
+
+
 def _extract_comfyui_prompt(raw):
-    """Pull readable prompt text out of a ComfyUI 'prompt' graph JSON. The resolved text
-    of an ImpactWildcardProcessor lives in its 'populated_text' input (the CLIPTextEncode
-    node only links to it), so a naive reader sees no prompt. Falls back to literal
-    CLIPTextEncode 'text' inputs."""
+    """Pull readable prompt text out of a ComfyUI 'prompt' graph JSON, plus the model and
+    LoRAs it loads. The resolved text of an ImpactWildcardProcessor lives in its
+    'populated_text' input (the CLIPTextEncode node only links to it), so a naive reader
+    sees no prompt. Falls back to literal CLIPTextEncode 'text' inputs."""
     try:
         graph = json.loads(raw)
     except Exception:
         return {}
     if not isinstance(graph, dict):
         return {}
-    wildcard, clip = [], []
+    wildcard, clip, models, loras = [], [], [], []
     for node in graph.values():
         if not isinstance(node, dict):
             continue
@@ -340,11 +367,29 @@ def _extract_comfyui_prompt(raw):
             t = inp.get("text")
             if isinstance(t, str) and t.strip():    # literal only, not a [node, idx] link
                 clip.append(t.strip())
+        elif ct in _COMFY_MODEL_LOADERS:
+            n = _comfy_model_name(inp.get(_COMFY_MODEL_LOADERS[ct]))
+            if n and n not in models:
+                models.append(n)
+        elif ct in _COMFY_LORA_LOADERS:
+            n = _comfy_model_name(inp.get("lora_name"))
+            if not n:
+                continue
+            sm, sc = _comfy_strength(inp.get("strength_model")), _comfy_strength(inp.get("strength_clip"))
+            # the model-only loader has no clip strength; when both exist and differ, both matter
+            st = sm if (not sc or sc == sm) else "model %s, clip %s" % (sm or "?", sc)
+            entry = "%s (%s)" % (n, st) if st else n
+            if entry not in loras:
+                loras.append(entry)
     texts, seen = [], set()
     for t in (wildcard or clip):
         if t not in seen:
             seen.add(t); texts.append(t)
-    return {"prompt": "\n".join(texts)[:2000]} if texts else {}
+    out = {}
+    if texts: out["prompt"] = "\n".join(texts)[:2000]
+    if models: out["model"] = ", ".join(models)[:300]
+    if loras: out["loras"] = "\n".join(loras)[:1000]
+    return out
 
 
 def extract_metadata(filepath, _raw=None):
@@ -380,8 +425,8 @@ def extract_metadata(filepath, _raw=None):
                         metadata["comfyui_prompt"] = True
                         metadata["raw_parameters"] = pt["prompt"][:2000]
                         _cy = _extract_comfyui_prompt(pt["prompt"])
-                        if _cy.get("prompt"):
-                            metadata.setdefault("prompt", _cy["prompt"])
+                        for _k, _v in _cy.items():
+                            metadata.setdefault(_k, _v)
                     except: metadata.setdefault("prompt", pt["prompt"][:2000])
                 if "workflow" in pt: metadata["comfyui_workflow"] = True
                 if "Description" in pt: metadata.setdefault("prompt", pt["Description"][:2000])
