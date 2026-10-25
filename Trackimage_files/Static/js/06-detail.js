@@ -444,14 +444,22 @@ function setSbFocus(col,el){
     applySbHighlight();
 }
 
-var _ratingLatest={},_ratingChain={};
+var _ratingLatest={},_ratingChain={},_ratingPending={};
 
 async function setRating(ids,rating){
     /* v3.65: optimistic UI first; per-image serialized requests, last press wins (fixes rapid-keypress race) */
     for(var id of ids){
-        _ratingLatest[id]=rating;
+        _ratingLatest[id]=rating;_ratingPending[id]=rating;
         var idx=getImgIndex(id);if(idx>=0)S.images[idx].rating=rating;
-        (function(iid){_ratingChain[iid]=(_ratingChain[iid]||Promise.resolve()).then(function(){if(_ratingLatest[iid]!==rating)return;return api('/api/image/'+iid+'/rating',{method:'POST',body:JSON.stringify({rating:rating})});});})(id);
+        (function(iid){_ratingChain[iid]=(_ratingChain[iid]||Promise.resolve()).then(async function(){
+            if(_ratingLatest[iid]!==rating)return;
+            /* a failed request used to vanish: the star stayed on screen, the toast said "set", and the
+               next reload showed none. api() throws on an answer that is not JSON, hence the catch. */
+            var r;try{r=await api('/api/image/'+iid+'/rating',{method:'POST',body:JSON.stringify({rating:rating})});}catch(e){r={error:'no answer from the server'};}
+            if(_ratingLatest[iid]!==rating)return;
+            delete _ratingPending[iid];
+            if(r&&r.error){showToast('Rating not saved: '+r.error);_ratingResync();}
+        });})(id);
     }
     if(rating>0)showToast('Rating '+rating+' set','success');
     else showToast('Rating cleared','success');
@@ -465,8 +473,13 @@ async function setRating(ids,rating){
     });
     // Update detail view if open
     if(S.page==='detail'){var di=document.getElementById('detail-rating');if(di){di.textContent=rating>0?rating:'';di.style.color=rating>0?ratingColor(rating):'var(--accent-light)';}}
+    /* the column counts come from the server: ask once it has the new ratings, not while the requests are still on their way */
+    await Promise.all(ids.map(function(id){return _ratingChain[id];}));
     await loadCharacters();renderTagList();
 }
+
+/* A rating the server refused: show what it really holds. */
+async function _ratingResync(){await loadImagesRefresh();if(S.page==='gallery')renderMainSoft();if(S.page==='detail'&&S.images[S.currentImageIndex]){var di=document.getElementById('detail-rating'),r=S.images[S.currentImageIndex].rating||0;if(di){di.textContent=r>0?r:'';di.style.color=r>0?ratingColor(r):'var(--accent-light)';}}await loadCharacters();renderTagList();}
 
 function ratingColor(r){r=parseInt(r)||0;if(r<1)return '';var h=Math.round((r-1)/8*120);return 'hsl('+h+',65%,45%)';}
 

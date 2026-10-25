@@ -36,11 +36,26 @@ async function onImageProcessed(d){if(!d||!d.id)return;if(S.page!=='detail'||S.c
 var _chSeq=0;
 async function loadCharacters(){var my=++_chSeq;var p=new URLSearchParams();folderParams(p);if(S.filter.search)p.set('search',S.filter.search);var qs=p.toString();var r=await Promise.all([api('/api/characters'+(qs?'?'+qs:'')),S.tagMode==='tags'?api('/api/tags'+(qs?'?'+qs:'')).catch(function(){return [];}):null]);if(my!==_chSeq)return;S.characters=r[0];if(r[1])S.tags=r[1];}
 
+/* The list was swapped under whoever is looking at it. Three things hang on the old one and
+   must follow the new: the open picture (S.currentImageIndex is a position, and a picture
+   that arrived at the top moved every other one down -- the next arrow key then skipped some
+   and the shown picture was no longer the one S.currentImageId names), the selection, and
+   star ratings whose request has not come back yet (the answer would show the old value). */
+function _imagesReplaced(){
+    invalidateIndexMap();
+    if(S.currentImageId){var ci=getImgIndex(S.currentImageId);if(ci>=0)S.currentImageIndex=ci;}
+    S.selectedImages.forEach(function(id){if(getImgIndex(id)<0)S.selectedImages.delete(id);});
+    Object.keys(_ratingPending).forEach(function(id){var ri=getImgIndex(parseInt(id));if(ri>=0)S.images[ri].rating=_ratingPending[id];});
+}
+
 async function loadImagesRefresh(){
+    /* v4.85: a list of up to 60 went through loadImagesReset, which empties the list and clears
+       the selection first -- so with Autosync running over a small folder every sync dropped the
+       picture you had just selected, and the 1-9 keys then rated nothing, silently. It asks for
+       what is loaded, as a longer list always did, and swaps it in one go. */
     var have=S.images.length;
-    if(have<=60)return loadImagesReset();
-    var _ep=S.navEpoch||0;
-    var want=Math.ceil(have/60)*60;
+    var _ep=S.navEpoch||0,_sq=S._imgSeq||0;
+    var want=Math.max(60,Math.ceil(have/60)*60);
     var p=new URLSearchParams();
     S.filter.characters.forEach(function(c){p.append('character',c);});
     S.filter.ratings.forEach(function(r){p.append('rating',r);});
@@ -49,10 +64,10 @@ async function loadImagesRefresh(){
     if(S.filter.search)p.set('search',S.filter.search);
     p.set('sort',S.sort);p.set('order',S.order);p.set('page',1);p.set('per_page',want);
     var d;try{d=await api('/api/images?'+p);}catch(e){return;}
-    if(_ep!==(S.navEpoch||0)||!d||!d.images)return;
+    if(_ep!==(S.navEpoch||0)||_sq!==(S._imgSeq||0)||!d||!d.images)return;
     S.images=d.images;S.total=d.total;S.filteredTotal=d.total;
     S.allLoaded=d.images.length>=d.total;
-    invalidateIndexMap();
+    _imagesReplaced();
 }
 
 async function loadImagesPreserve(){
@@ -75,4 +90,5 @@ async function loadImagesPreserve(){
         if(!d.images.length||S.images.length>=d.total)break;
     }
     S.total=total;S.filteredTotal=total;S.allLoaded=S.images.length>=total;
+    _imagesReplaced();
 }
