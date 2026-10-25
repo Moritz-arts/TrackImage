@@ -41,7 +41,7 @@ state._watcher_running = False
 _watcher_ctl_lock = threading.RLock()
 
 
-_AUTOSYNC = {"on": True}   # v3.61: master switch (watcher + auto-process + auto-tag)
+_AUTOSYNC = {"on": True}   # v3.61: master switch (watcher + auto-process); tagging has its own
 
 
 def _autosync_load():

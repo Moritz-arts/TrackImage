@@ -74,6 +74,8 @@ def api_tag_stop():
 
 @app.route("/api/tag/retag-all", methods=["POST"])
 def api_tag_retag_all():
+    if not _tag_get_cfg()["enabled"]:   # resetting every picture would leave them all pending, with nothing to tag them
+        return jsonify({"error": "Automatic tagging is switched off \u2014 switch it on first"}), 400
     db = get_db()
     db.execute("UPDATE images SET tagged=0")
     db.commit()
