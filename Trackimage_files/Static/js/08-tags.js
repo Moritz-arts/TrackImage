@@ -81,7 +81,7 @@ function addTagBtnHtml(imgId){return '<button class="add-tag-btn" onclick="toggl
 
 function hookAddTagAC(){var ati=document.getElementById('add-tag-input');if(!ati||ati._acAttached)return;ati._acAttached=true;attachAutocomplete(ati,{mode:'search',fetchItems:async function(q){var r=await api('/api/suggest-tags?q='+encodeURIComponent(q)+'&image_id='+S.currentImageId);return Array.isArray(r)?r:[];},onPick:function(name,it){var v=(it&&(it.value||it.name))||name;var inp=document.getElementById('add-tag-input');if(inp)inp.value=v;addTag(S.currentImageId,(it&&it.type==='name')?'character':undefined);}});}
 
-async function retagOne(id){showToast('Re-tagging\u2026','success',true);var r=await api('/api/image/'+id+'/retag',{method:'POST'});if(r&&r.error)return showToast('Error: '+r.error);showToast('Auto-tags reset','success',true);S.tagsModified=true;loadDetailTags(id);}
+async function retagOne(id){showToast('Re-tagging\u2026','success',true);var r=await api('/api/image/'+id+'/retag',{method:'POST'});if(r&&r.error)return showToast('Error: '+r.error);showToast('Auto-tags reset','success',true);S.tagsModified=true;loadDetailTags(id);refreshTagCol();}
 
 /* The T key: straight into the tag field of the picture on screen. Whatever hides the
    field -- the whole-screen view, a folded info panel, a folded Tags section -- is
@@ -99,13 +99,13 @@ var inp=document.getElementById('add-tag-input');if(inp){inp.focus();inp.select(
 
 function toggleAddTag(id){var el=document.getElementById('add-tag-inline');var btn=document.getElementById('add-tag-toggle');if(!el)return;if(el.classList.contains('open')){el.classList.remove('open');if(btn)btn.style.display='';}else{el.classList.add('open');if(btn)btn.style.display='none';var inp=document.getElementById('add-tag-input');if(inp)inp.focus();}}
 
-async function removeAutoTag(id,t,cat){var r=await api('/api/image/'+id+'/remove-tag',{method:'POST',body:JSON.stringify({tag:t})});if(r.error)return showToast('Error: '+r.error);pushUndo({type:'tag_remove',imageId:id,tag:t,cat:cat||''});showToast('"'+t+'" removed','success',true);S.tagsModified=true;loadDetailTags(id);}
+async function removeAutoTag(id,t,cat){var r=await api('/api/image/'+id+'/remove-tag',{method:'POST',body:JSON.stringify({tag:t})});if(r.error)return showToast('Error: '+r.error);pushUndo({type:'tag_remove',imageId:id,tag:t,cat:cat||''});showToast('"'+t+'" removed','success',true);S.tagsModified=true;loadDetailTags(id);refreshTagCol();}
 
 var _charMode=false;
 
 function toggleCharMode(){_charMode=!_charMode;document.querySelectorAll('.char-toggle').forEach(function(b){b.classList.toggle('active',_charMode);});}
 
-async function addTag(id,type){var i=document.getElementById('add-tag-input');var t=i?i.value.trim():'';if(!t)return;var r=await api('/api/image/'+id+'/add-tag',{method:'POST',body:JSON.stringify({tag:t,type:type||(_charMode?'character':'auto')})});if(r.error)return showToast('Error: '+r.error);pushUndo({type:'tag_add',imageId:id,tag:t});showToast('Tag added','success',true);if(i)i.value='';toggleAddTag();S.tagsModified=true;loadDetailTags(id);}
+async function addTag(id,type){var i=document.getElementById('add-tag-input');var t=i?i.value.trim():'';if(!t)return;var r=await api('/api/image/'+id+'/add-tag',{method:'POST',body:JSON.stringify({tag:t,type:type||(_charMode?'character':'auto')})});if(r.error)return showToast('Error: '+r.error);pushUndo({type:'tag_add',imageId:id,tag:t});showToast('Tag added','success',true);if(i)i.value='';toggleAddTag();S.tagsModified=true;loadDetailTags(id);refreshTagCol();}
 
 async function addIgnoreWord(){var i=document.getElementById('ignore-word-input');var w=i.value.trim();if(!w)return;await api('/api/ignore-words',{method:'POST',body:JSON.stringify({word:w})});i.value='';await loadIgnoreWords();render();showToast('"'+w+'" added','success');}
 
@@ -179,6 +179,13 @@ function buildTagsHtml(allCount){
 }
 
 function renderTagList(){var els=document.querySelectorAll('.tag-list');if(!els.length)return;var allCount=S.filter.search?(S.filteredTotal||0):getFolderTotal();var html=buildTagsHtml(allCount);for(var i=0;i<els.length;i++)els[i].innerHTML=html;}
+
+/* A tag added or removed one picture at a time (T, the + button, the x) changed the tag
+   list, but the column stayed as it was until the picture was closed -- and the column
+   beside the open picture is the one the blue tags are meant to show in. Only the Tags
+   view lists them, so only /api/tags is asked, and a burst of T-word-Enter-arrow is one request. */
+var _tagColT=null;
+function refreshTagCol(){if(S.tagMode!=='tags')return;clearTimeout(_tagColT);_tagColT=setTimeout(async function(){var p=new URLSearchParams();folderParams(p);if(S.filter.search)p.set('search',S.filter.search);var qs=p.toString(),my=++_chSeq;try{var r=await api('/api/tags'+(qs?'?'+qs:''));if(my===_chSeq&&Array.isArray(r)){S.tags=r;renderTagList();}}catch(e){}},250);}
 
 function setTagMode(m){m=(m==='tags')?'tags':'names';if(S.tagMode===m)return;S.tagMode=m;localStorage.setItem('ti_tagmode',m);loadCharacters().then(function(){rerenderTagCol();});}
 

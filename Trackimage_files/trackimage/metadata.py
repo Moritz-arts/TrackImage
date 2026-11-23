@@ -340,11 +340,39 @@ def _comfy_strength(v):
         return ""   # a link to a primitive node, not a number
 
 
+# The inputs an encoder takes its words from -- CLIPTextEncode has text, the SDXL and
+# Flux variants text_g / text_l / clip_l / t5xxl, the Qwen image-edit encoders prompt -- and
+# the inputs a node that merely holds a string keeps them in (Crystools' and ComfyUI's own
+# primitive string nodes, a wildcard processor).
+_COMFY_TEXT_INPUTS = ("text", "prompt", "text_g", "text_l", "clip_l", "t5xxl")
+_COMFY_STRING_INPUTS = ("string", "value", "populated_text", "text", "prompt")
+
+
+def _comfy_text(graph, v, depth=0):
+    """An encoder's text input is either the words themselves or a link [node_id, slot] to
+    the node that holds them -- which is what a prompt field fed from a primitive string
+    node is, so reading only literal strings found nothing. Follow the link."""
+    if isinstance(v, str):
+        return v.strip()
+    if depth > 4 or not isinstance(v, list) or not v:
+        return ""
+    src = graph.get(str(v[0]))
+    inp = src.get("inputs") if isinstance(src, dict) else None
+    if not isinstance(inp, dict):
+        return ""
+    for k in _COMFY_STRING_INPUTS:
+        t = _comfy_text(graph, inp.get(k), depth + 1)
+        if t:
+            return t
+    return ""
+
+
 def _extract_comfyui_prompt(raw):
     """Pull readable prompt text out of a ComfyUI 'prompt' graph JSON, plus the model and
     LoRAs it loads. The resolved text of an ImpactWildcardProcessor lives in its
     'populated_text' input (the CLIPTextEncode node only links to it), so a naive reader
-    sees no prompt. Falls back to literal CLIPTextEncode 'text' inputs."""
+    sees no prompt. Any '...TextEncode...' node counts as an encoder (the Qwen image-edit
+    ones call the field 'prompt'), and a field fed from another node is followed to it."""
     try:
         graph = json.loads(raw)
     except Exception:
@@ -363,10 +391,11 @@ def _extract_comfyui_prompt(raw):
             pt = inp.get("populated_text")
             if isinstance(pt, str) and pt.strip():
                 wildcard.append(pt.strip())
-        elif ct == "CLIPTextEncode":
-            t = inp.get("text")
-            if isinstance(t, str) and t.strip():    # literal only, not a [node, idx] link
-                clip.append(t.strip())
+        elif "TextEncode" in ct:
+            for k in _COMFY_TEXT_INPUTS:
+                t = _comfy_text(graph, inp.get(k))
+                if t:
+                    clip.append(t)
         elif ct in _COMFY_MODEL_LOADERS:
             n = _comfy_model_name(inp.get(_COMFY_MODEL_LOADERS[ct]))
             if n and n not in models:
