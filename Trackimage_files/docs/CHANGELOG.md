@@ -5,6 +5,10 @@ automatically -- one line per change, newest first. A release is drafted by hand
 from the tag of whichever version is judged ready, and this is the text to paste
 into it.
 
+## v4.86 — 2026-11-23
+
+- Launchers: setup installs into the venv again, even after the folder was renamed or moved
+
 ## v4.85 — 2026-10-25
 
 - Auto-tagging has its own switch: syncing no longer forces the tagger on
