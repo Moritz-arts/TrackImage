@@ -47,7 +47,12 @@ if [ ! -d "venv" ]; then
     python3 -m venv venv
 fi
 
-source venv/bin/activate
+# v4.86: not "source venv/bin/activate" -- it has the folder the venv was created in
+# written into it, so after the installation folder was renamed or moved, plain
+# "python" fell through to the system Python and installed there (or failed).
+# The venv is put first on PATH from where it really is.
+export VIRTUAL_ENV="$TIDIR/venv"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
 # v3.76: keep the venv self-contained (see start-linux.sh)
 export PYTHONNOUSERSITE=1
 echo "  [2/3] Checking dependencies..."

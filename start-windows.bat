@@ -40,7 +40,15 @@ if errorlevel 1 (
   echo.
 )
 if not exist "venv" ( echo  [1/3] Creating virtual environment... & python -m venv venv )
-call venv\Scripts\activate.bat
+:: v4.86: not "call venv\Scripts\activate.bat". That script has the folder it was
+:: created in written into it, so after the installation folder was renamed or
+:: moved it put a path that no longer exists on PATH, plain "python" fell through
+:: to the system Python, and every dependency check and pip install below went
+:: to C:\Python3xx\Lib\site-packages -- WinError 5 for each package, while the
+:: lines that name venv\Scripts\python.exe by path kept working and TrackImage
+:: started regardless. The venv is put first on PATH from where it really is.
+set "VIRTUAL_ENV=%TIDIR%\venv"
+set "PATH=%TIDIR%\venv\Scripts;%PATH%"
 :: v3.76: everything TrackImage needs lives in THIS venv. Blocking the per-user
 :: site-packages stops an older "pip install --user nvidia-cudnn-cu12" elsewhere
 :: on the machine from leaking in - mixing two cuDNN versions broke GPU tagging.
